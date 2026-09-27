@@ -90,9 +90,7 @@ always a human action.
   tool that computes this from the file itself.
 - **No semantic diff tool.** Comparing two enquiry exports means reading
   raw JSON/XML by eye.
-- **No natural-language front end.** Nothing between "plain English
-  request" and "call `enqgen.py` functions by hand" exists yet — that's
-  entirely aspirational (see `docs/ROADMAP.md` P3).
+- ~~**No natural-language front end.**~~ **Done, then widened.** `src/spec.py`/`src/nl_parser.py`/`src/compiler.py` closed the "plain English request" → `enqgen.py` calls gap for GL first (see §9 item 7's update below), then `src/templates.py` + `compile_request()` widened it to all 7 modules represented in `generated/` via a fixed-template catalog rather than a second flexible compiler per module (see `docs/ARCHITECTURE.md`'s design-choices section and `docs/ROADMAP.md` item 10).
 - **Corpus mining is blocked, not merely unstarted** (§0) — none of "mine
   the 640 enquiries for recurring patterns" can be honestly done without
   that raw data.
@@ -207,9 +205,29 @@ In priority order, all achievable without new external evidence:
    `src/spec.py` (`EnquirySpec`), `src/nl_parser.py` (a rule-based keyword
    matcher, explicitly documented as *not* NLP), and `src/compiler.py`
    (spec → `enqgen.py` calls), scoped narrowly to GL-grain enquiries only.
-   See `docs/ROADMAP.md` item 10 for what it does and doesn't cover, and
-   `tests/test_nl_parser.py`/`tests/test_compiler.py` for its actual,
-   tested behavior rather than an aspirational description of it.
+
+   **Update, later pass still:** widened from GL-only to all 7 modules
+   `generated/` represents, via `src/templates.py` (a keyword-matched
+   catalog over `src/build_library.py`'s 14 confirmed report shapes,
+   refactored into pure functions so there's exactly one implementation
+   of each) plus `src/compiler.py`'s `compile_request()` orchestrator,
+   which tries the template catalog first and falls back to the original
+   flexible GL compiler for a custom dimension combination that matches no
+   fixed template. This did **not** mean fabricating new flexible
+   dimension/measure vocabularies for AR/AP/Sales/Purchasing/Bank/Budgets
+   the way GL has one (`crv_gl`) — those modules don't have a confirmed
+   equivalent, so widening coverage there means recognizing more of the
+   *shapes already confirmed and validated* in this repo, never guessing
+   a new one. A request outside all 14 shapes and outside GL's flexible
+   path returns a plain "not supported yet" rather than a wrong report.
+   `tools/enquiry_builder_app.py` (the customer-facing web front end) was
+   updated to route through `compile_request()` and to ask a clarifying
+   question when a request ties between two templates, rather than
+   guessing which one was meant. See `docs/ROADMAP.md` item 10 and
+   `tests/test_nl_parser.py`/`tests/test_compiler.py`/`tests/test_templates.py`/
+   `tests/test_build_library.py`/`tests/test_enquiry_builder_app.py` for
+   the actual, tested behavior rather than an aspirational description of
+   it.
 
 ## 10. Proposed autonomous execution order
 

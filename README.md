@@ -9,12 +9,12 @@ This exists because iplicit enquiries are a real but undocumented format: four J
 | Path | What it is |
 |---|---|
 | `docs/` | The reference material — schema, grammar, known and discovered failure modes, a project audit, a roadmap, and the two skill documents (`IPLICIT_ENQUIRY_MASTER_SKILL.md` full, `IPLICIT_ENQUIRY_QUICK_SKILL.md` condensed, meant to be pasted into a Claude Project's instructions). |
-| `src/` | The generator (`enqgen.py` + its `schema.py`/`joins.py`/`layouts.py`/`permissions.py` building blocks), a typed intermediate representation (`ir.py`), a parser that reads an export back into that IR (`enquiry_parser.py`), the structural + cross-reference + adversarial validator (`enquiry_validator.py`), a schema-confidence report (`confidence.py`), two CLI tools built on all of the above (`enquiry_doctor.py` one-file diagnostic report, `enquiry_diff.py` semantic comparison of two enquiries), and a narrow natural-language front end (`spec.py`/`nl_parser.py`/`compiler.py`, GL-grain enquiries only — see `docs/ROADMAP.md` item 10). |
-| `tests/` | 188 unit tests for every module above (including tools/enquiry_builder_app.py), fixtures (one clean, sixteen deliberately broken — one per known/discovered/adversarial failure mode), a mutation-testing harness that applies each of those same mutations to every real `generated/` enquiry, and regression tests for the real bugs this project has hit. |
+| `src/` | The generator (`enqgen.py` + its `schema.py`/`joins.py`/`layouts.py`/`permissions.py` building blocks), a typed intermediate representation (`ir.py`), a parser that reads an export back into that IR (`enquiry_parser.py`), the structural + cross-reference + adversarial validator (`enquiry_validator.py`), a schema-confidence report (`confidence.py`), two CLI tools built on all of the above (`enquiry_doctor.py` one-file diagnostic report, `enquiry_diff.py` semantic comparison of two enquiries), the library of 14 confirmed report shapes as reusable functions (`build_library.py`), a keyword-matched catalog over that library (`templates.py`), and a natural-language front end (`spec.py`/`nl_parser.py`/`compiler.py`) whose `compile_request()` covers all 7 modules `generated/` represents — see `docs/ROADMAP.md` item 10. |
+| `tests/` | Unit tests for every module above (including `tools/enquiry_builder_app.py`), fixtures (one clean, sixteen deliberately broken — one per known/discovered/adversarial failure mode), a mutation-testing harness that applies each of those same mutations to every real `generated/` enquiry, and regression tests for the real bugs this project has hit. Run `python3 -m unittest discover -s tests -v` for the current count. |
 | `corpus/` | Where real enquiry SQL goes to keep improving this. `real_enquiries/` is empty on purpose — see below. `confirmed_patterns/` and `unknown_patterns/` track what's actually been verified against a live iplicit database versus what's inferred from documented conventions. |
 | `generated/` | Ready-to-import enquiry exports, one folder per iplicit module (`gl`, `ar`, `ap`, `sales`, `purchasing`, `bank`, `budgets`). |
 | `experiments/` | Scratch space for enquiries being drafted/tested — promote to `generated/` once validated. |
-| `tools/` | `enquiry_builder_app.py` — a customer-facing, stdlib-only local web app: describe a GL report in plain English, get back the ready-to-import file. A thin front end over `src/nl_parser.py`/`src/compiler.py`/`src/enquiry_validator.py`; adds no report-building logic of its own. |
+| `tools/` | `enquiry_builder_app.py` — a customer-facing, stdlib-only local web app: describe a report in plain English (any of the 7 modules above), get back the ready-to-import file, with a one-click clarifying question when a request is genuinely ambiguous between two report types. A thin front end over `src/compiler.py`'s `compile_request()`; adds no report-building logic of its own. |
 
 ## Quick start
 
@@ -34,22 +34,27 @@ python3 src/enquiry_doctor.py generated/bank/10_bank_transactions_by_account.jso
 # Semantic diff of two enquiries (field/join/param/layout/permission level, not textual)
 python3 src/enquiry_diff.py generated/ar/05_aged_debtors_by_customer.json generated/ap/07_aged_creditors_by_supplier.json
 
-# Run the test suite (188 tests)
+# Run the test suite
 python3 -m unittest discover -s tests -v
 ```
 
 To build a new enquiry: write a short Python script using the functions in `src/enqgen.py` (see `src/build_library.py` for 14 worked examples spanning list views, pivots, unions, and table-valued-function sources), validate it, then in iplicit go to **Enquiries > ⋮ > Import from clipboard**, paste the file's contents, tick an analytic group, and click **Create**.
 
-For a plain-English GL request, there's also a narrow compiler prototype (`src/spec.py`/`src/nl_parser.py`/`src/compiler.py` — GL-grain only, rule-based keyword matching, not NLP; see `docs/ROADMAP.md` item 10):
+For a plain-English request, there's also a compiler covering all 7 modules `generated/` represents (`src/spec.py`/`src/nl_parser.py`/`src/templates.py`/`src/compiler.py` — rule-based keyword matching, not NLP; see `docs/ROADMAP.md` item 10). `compile_request()` is the entry point: it matches the request against 14 confirmed report shapes first, falls back to a flexible General-Ledger-only compiler for a custom dimension combination that matches none of them, and returns a clarifying question instead of guessing when a request ties between two report types:
 
 ```python
 import sys; sys.path.insert(0, "src")
-from nl_parser import parse
-from compiler import compile_and_build
+from compiler import compile_request
 
-spec = parse("Show me GL balance by department and cost centre, monthly")
-env, model, warnings = compile_and_build(spec)   # still run this through enquiry_validator.py before trusting it
-print(warnings)  # what the parser/compiler couldn't confirm, if anything
+result = compile_request("Aged debtors by customer, who owes us")
+if result["status"] == "ok":
+    env = result["env"]          # still run this through enquiry_validator.py before trusting it
+    print(result["warnings"], result["confidence"])
+elif result["status"] == "ambiguous":
+    print("Which one did you mean?", result["candidates"])   # [(key, title, module), ...]
+    # resubmit: compile_request(text, chosen_template_key=key)
+else:  # "unsupported" (or "invalid", which should never happen for a template match)
+    print(result["message"])
 ```
 
 There's also a customer-facing web front end over the same pipeline — `tools/enquiry_builder_app.py`, stdlib-only, no install:
@@ -59,7 +64,7 @@ python3 tools/enquiry_builder_app.py
 # open http://localhost:8765 — type a request, click Generate, get back the file
 ```
 
-It's deliberately a thin skin: it hides Python/validator internals from the person using it (no stack traces, no jargon), translates warnings into plain-English notes, and — if a request reads as belonging to a different module (AR/AP/sales/bank/budgets) or fails validation — says so plainly and points to support instead of handing over a guess. See its own docstring and `tests/test_enquiry_builder_app.py` for exactly what it does and doesn't do.
+It's deliberately a thin skin: it hides Python/validator internals from the person using it (no stack traces, no jargon), translates warnings and schema-confidence caveats into plain-English notes, offers a one-click picker when a request is genuinely ambiguous between two report types, and — if a request matches nothing this repo can build or fails validation — says so plainly and points to support instead of handing over a guess. See its own docstring and `tests/test_enquiry_builder_app.py` for exactly what it does and doesn't do.
 
 ## The honesty policy
 

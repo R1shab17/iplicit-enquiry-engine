@@ -6,17 +6,23 @@ Run:
     python3 tools/enquiry_builder_app.py
 
 Then open http://localhost:8765 in a browser. Type a plain-English request
-for a General Ledger report ("Show me balance by department and cost
-centre, monthly"), click Generate, and get back a ready-to-import iplicit
-report file — prompt in, file out, no jargon in between.
+for a report — General Ledger, Aged debtors/creditors, Top customers,
+Purchase invoices, Overdue invoices, Bank transactions, Manual journals,
+Documents by user, Budget vs actual, or Credit notes — click Generate, and
+get back a ready-to-import iplicit report file. Prompt in, file out, no
+jargon in between. If a request is genuinely ambiguous between two report
+types, the tool asks which one you meant instead of guessing.
 
-This is a thin, friendly front end over src/nl_parser.py + src/compiler.py
-+ src/enquiry_validator.py. It adds no new report-building logic of its
-own, and its scope is exactly theirs: General Ledger requests only (see
-docs/ROADMAP.md item 10). Anything it can't build reliably, it says so in
-plain language and points to support rather than handing over a guess. It
-never talks to a live iplicit tenant — it only produces the file a person
-then pastes into iplicit's own Enquiries > Import from clipboard dialog.
+This is a thin, friendly front end over src/compiler.py's compile_request()
+(itself built on src/templates.py's 14 confirmed report shapes plus a
+flexible General-Ledger-only fallback for custom dimension combinations —
+see src/compiler.py's own docstring and docs/ROADMAP.md item 10). It adds
+no new report-building logic of its own. Anything it can't build reliably —
+another module entirely (Fixed Assets, Projects, ...), or a request that
+doesn't read as a report at all — it says so in plain language and points
+to support rather than handing over a guess. It never talks to a live
+iplicit tenant — it only produces the file a person then pastes into
+iplicit's own Enquiries > Import from clipboard dialog.
 
 Stdlib only, so it runs anywhere Python 3 runs — nothing to install.
 """
@@ -25,21 +31,20 @@ import http.server
 import os
 import socketserver
 import sys
-import tempfile
 from urllib.parse import parse_qs
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from nl_parser import parse as parse_request  # noqa: E402
-from compiler import compile_and_build  # noqa: E402
-from enquiry_validator import validate_file  # noqa: E402
+from compiler import compile_request  # noqa: E402
 
 PORT = int(os.environ.get("ENQUIRY_BUILDER_PORT", "8765"))
 
 EXAMPLES = [
-    "Show me balance by department and cost centre",
-    "GL report by department, monthly",
-    "Balance by fund and location",
+    "Show me the trial balance",
+    "Aged debtors by customer",
+    "Top customers by revenue",
+    "Overdue purchase invoices",
+    "Balance by fund and location, monthly",
 ]
 
 PAGE = """<!doctype html>
@@ -69,6 +74,12 @@ PAGE = """<!doctype html>
   .notes ul {{ margin: 4px 0 0 0; padding-left: 18px; }}
   .examples {{ color: #777; font-size: 0.85rem; margin-top: 4px; }}
   .steps {{ background: #f0fdf4; border: 1px solid #bbf7d0; padding: 10px 14px; border-radius: 6px; }}
+  .choices {{ display: flex; flex-direction: column; gap: 8px; margin: 14px 0; }}
+  .choice {{ display: block; text-align: left; background: white; color: #1a1a1a;
+             border: 1px solid #ccc; border-radius: 6px; padding: 12px 14px; cursor: pointer; }}
+  .choice:hover {{ border-color: #2563eb; background: #f5f8ff; }}
+  .choice .title {{ font-weight: 600; }}
+  .choice .module {{ color: #777; font-size: 0.85rem; }}
   a {{ color: #2563eb; }}
 </style>
 </head>
@@ -88,10 +99,10 @@ def render_form(error=None, previous_text=""):
     examples_html = " &nbsp;|&nbsp; ".join(f'<a href="#" onclick="fill(this)">{html.escape(e)}</a>' for e in EXAMPLES)
     return _page(f"""
       <h1>Report builder</h1>
-      <p class="lead">Describe the General Ledger report you'd like, in plain English, and we'll build the file for you.</p>
+      <p class="lead">Describe the report you'd like, in plain English, and we'll build the file for you.</p>
       {error_html}
       <form method="post" action="/generate">
-        <textarea name="request" rows="3" placeholder="e.g. Show me balance by department and cost centre, monthly">{html.escape(previous_text)}</textarea>
+        <textarea name="request" rows="3" placeholder="e.g. Aged debtors by customer">{html.escape(previous_text)}</textarea>
         <div class="examples">Try: {examples_html}</div>
         <button type="submit">Generate report</button>
       </form>
@@ -101,6 +112,31 @@ def render_form(error=None, previous_text=""):
           return false;
         }}
       </script>
+    """)
+
+
+def render_ambiguous(request_text, candidates):
+    """candidates: [(key, title, module), ...]. Each renders as a button
+    that resubmits the same request text plus the chosen template key — the
+    "I will be able to provide whatever the tool asks for in return"
+    clarifying-question flow, satisfied without any client-side JS state."""
+    buttons = []
+    for key, title, module in candidates:
+        buttons.append(f"""
+          <form method="post" action="/generate" style="margin:0;">
+            <input type="hidden" name="request" value="{html.escape(request_text)}">
+            <input type="hidden" name="template_key" value="{html.escape(key)}">
+            <button type="submit" class="choice">
+              <span class="title">{html.escape(title)}</span><br>
+              <span class="module">{html.escape(module)}</span>
+            </button>
+          </form>
+        """)
+    return _page(f"""
+      <h1>Which one did you mean?</h1>
+      <p class="lead">Your request could match more than one report. Pick the one you'd like:</p>
+      <div class="choices">{''.join(buttons)}</div>
+      <button type="button" class="secondary" onclick="location.href='/'">Start over</button>
     """)
 
 
@@ -132,31 +168,39 @@ def friendly_notes(warnings):
     return notes
 
 
-def render_result(request_text):
+# A confidence report's "overall" (src/confidence.py) -> a plain-English
+# caveat. Derived generically from that one field rather than hand-writing
+# a caveat per template, so a template's schema confidence changing (e.g.
+# once corpus/confirmed_patterns/ grows) is reflected here automatically.
+_CONFIDENCE_NOTES = {
+    "mixed": "Part of this report relies on a table this tool hasn't independently confirmed against a "
+             "live system yet — it should work, but treat it as worth double-checking once imported.",
+    "unconfirmed": "This report relies on tables this tool hasn't independently confirmed against a live "
+                   "system yet — treat it as a draft to verify, not a finished report.",
+}
+
+
+def _confidence_note(confidence):
+    if not confidence:
+        return None
+    return _CONFIDENCE_NOTES.get(confidence.get("overall"))
+
+
+def render_result(request_text, template_key=None):
     request_text = (request_text or "").strip()
     if not request_text:
         return render_form(error="Please describe the report you'd like first.")
 
-    spec = parse_request(request_text)
-    try:
-        env, model, warnings = compile_and_build(spec)
-    except NotImplementedError:
-        return render_form(
-            error="This tool currently builds General Ledger reports only. For other report "
-                  "types (customers, suppliers, sales, purchasing, bank, budgets), please "
-                  "contact support.",
-            previous_text=request_text,
-        )
+    result = compile_request(request_text, chosen_template_key=template_key or None)
+    status = result["status"]
 
-    fd, path = tempfile.mkstemp(suffix=".json")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(env)
-        issues = validate_file(path)
-    finally:
-        os.unlink(path)
+    if status == "ambiguous":
+        return render_ambiguous(request_text, result["candidates"])
 
-    if issues:
+    if status == "unsupported":
+        return render_form(error=result["message"], previous_text=request_text)
+
+    if status == "invalid":
         # A customer never sees raw validator output — that's for the
         # people maintaining this tool (see tests/, docs/FAILURE_MODES.md).
         return render_form(
@@ -165,13 +209,17 @@ def render_result(request_text):
             previous_text=request_text,
         )
 
-    notes = friendly_notes(warnings)
+    # status == "ok"
+    notes = friendly_notes(result.get("warnings", []))
+    confidence_note = _confidence_note(result.get("confidence"))
+    if confidence_note:
+        notes.append(confidence_note)
     notes_html = ""
     if notes:
         items = "".join(f"<li>{html.escape(n)}</li>" for n in notes)
         notes_html = f'<div class="notes"><strong>A few notes about this report:</strong><ul>{items}</ul></div>'
 
-    escaped_env = html.escape(env)
+    escaped_env = html.escape(result["env"])
     return _page(f"""
       <h1>Your report is ready</h1>
       <div class="steps">
@@ -213,7 +261,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = self.rfile.read(length).decode("utf-8")
             fields = parse_qs(body)
             request_text = fields.get("request", [""])[0]
-            self._send_html(render_result(request_text))
+            template_key = fields.get("template_key", [""])[0]
+            self._send_html(render_result(request_text, template_key=template_key))
         else:
             self.send_response(404)
             self.end_headers()

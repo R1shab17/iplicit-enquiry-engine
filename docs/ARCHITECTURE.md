@@ -15,10 +15,27 @@ This repo doesn't depend on having that access again for day-to-day use — the 
 ```
 plain-English request
         │
-        ├──▶ (GL-grain requests only) src/nl_parser.py — rule-based keyword
-        │     match, not NLP — into src/spec.py's EnquirySpec, then
-        │     src/compiler.py — EnquirySpec → the same enqgen.py calls a
-        │     human would write by hand (see "Design choices" below)
+        ├──▶ src/compiler.py's compile_request() — the customer-facing
+        │     entry point (tools/enquiry_builder_app.py). Two paths, tried
+        │     in order:
+        │       1. src/templates.py matches the request against 14 fixed,
+        │          already-confirmed report shapes spanning all 7 modules
+        │          (GL/AR/AP/Sales/Purchasing/Bank/Budgets) — each one is
+        │          literally one of src/build_library.py's own
+        │          enquiry_NN_*() functions, so there's exactly one place
+        │          that knows how to build, say, an aged-debtors report.
+        │          A clear winner builds that report; a tie returns
+        │          "ambiguous" so the caller can ask which one was meant.
+        │       2. No template matches → src/nl_parser.py (rule-based
+        │          keyword match, not NLP) builds a src/spec.py EnquirySpec,
+        │          then src/compiler.py's compile_spec() turns it into the
+        │          same enqgen.py calls a human would write by hand — but
+        │          only for GL, and only a flexible dimension/measure
+        │          combination that doesn't match a fixed template (e.g.
+        │          "balance by fund and location"). See "Design choices"
+        │          below for why GL alone gets this flexible path.
+        │     Anything neither path covers returns "unsupported" with a
+        │     plain-English reason — never a guess dressed up as an answer.
         │
         ▼  (everything else: a human writes the enqgen.py calls directly)
 src/enqgen.py  (param / src / fld / multi_filter / query_xml / meta / layout / build)
@@ -72,5 +89,7 @@ Enquiries ▸ ⋮ ▸ Import from clipboard ▸ Apply ▸ (tick analytic group) 
 - **Generator produces text, never calls an API.** Nothing in `src/` talks to a live iplicit tenant. Import and Create are always a human action, by design — see `CLAUDE.md`.
 - **The split between `schema.py` / `joins.py` / `layouts.py` / `permissions.py`** exists so that updating one axis (e.g. a newly confirmed table) doesn't require touching the query-building logic in `enqgen.py`, and so `enquiry_parser.py`/`ir.py` can share the same vocabulary when decoding real examples.
 - **`ir.py` is a read/represent layer, not a generator rewrite.** `enqgen.py` still builds QueryXml directly with string templates — that code is simple and already battle-tested across 14 real builds. The IR exists so *validation and tooling* (the validator's cross-reference layer, the doctor, the diff tool) have typed data to work with, without forcing a generator rewrite that would risk the working 14.
-- **The natural-language front end compiles *into* `enqgen.py` calls, not around them.** `src/compiler.py` builds the same `(params, selects, propmeta, layouts, permissions)` shape a hand-written `src/build_library.py` entry builds, then hands it to the same `enqgen.build()` — so a compiled enquiry goes through exactly the same `enquiry_validator.py`/`enquiry_doctor.py` gate as a hand-written one, with no separate, weaker code path. It's also deliberately narrow (GL-grain only) rather than a general one — see `docs/ROADMAP.md` item 10 — because a wrong guess at column/table names anywhere in the pipeline would violate `CLAUDE.md`'s "one rule that matters most," and narrow-but-honest beats broad-but-guessing.
+- **The natural-language front end compiles *into* `enqgen.py` calls (or `build_library.py` functions), never around them.** Whether `compile_request()` takes the template path or the flexible-GL path, the result is the same `(params, selects, propmeta, layouts, permissions)` shape a hand-written `src/build_library.py` entry builds, handed to the same `enqgen.build()` — so a compiled enquiry goes through exactly the same `enquiry_validator.py`/`enquiry_doctor.py` gate as a hand-written one, with no separate, weaker code path.
+- **Fixed templates for modules without GL's confirmed flexibility, not a second flexible compiler per module.** GL has a confirmed, general-purpose dimension mechanism (`crv_gl`), so `compile_spec()` can assemble *any* combination of confirmed dimensions freely. AR/AP/Sales/Purchasing/Bank/Budgets don't have an equivalent — each of this repo's 14 confirmed examples in those modules is its own bespoke join/shape, hand-verified once. Rather than fabricate a flexible query language for those modules (which would mean guessing at column/table combinations nobody has confirmed — exactly what `CLAUDE.md`'s "one rule that matters most" forbids), `src/templates.py` treats those 14 examples as a fixed catalog: a request either matches one of them closely enough to build with confidence, or it doesn't and says so. Widening a module's coverage means confirming a new report shape against a real tenant and adding it as the 15th `build_library.py` function — never stretching an existing one to guess at a shape nobody's built.
+- **Ambiguity is surfaced, not resolved by guessing.** When a request scores an equal-highest match against more than one template (e.g. "purchase invoices" alone could plausibly mean the by-supplier-by-month report or the overdue-invoices report), `compile_request()` returns `"status": "ambiguous"` with every tied candidate rather than picking one. `tools/enquiry_builder_app.py` turns that into a one-click picker; a caller with no UI can just ask the person directly.
 - **Mutation testing over fuzzing.** `tests/test_mutations.py` mutates real, already-valid `generated/*/*.json` files one meaningful edit at a time, rather than generating random XML/JSON — the goal is finding validator blind spots on realistic near-misses, not crash-testing the parser.

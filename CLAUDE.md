@@ -10,6 +10,7 @@ This repo generates iplicit ERP enquiries (custom reports). Read this before mak
 - Comparing two enquiries (a draft vs. a real export, or before/after an edit)? Use `python3 src/enquiry_diff.py <a>.json <b>.json` — it diffs by field/join/param/layout/permission name via `src/ir.py`, not by raw text, so unrelated `$id` renumbering doesn't show up as noise.
 - Put a new enquiry's build script and its output in the right module folder under `generated/<module>/` (`gl`, `ar`, `ap`, `sales`, `purchasing`, `bank`, `budgets`). If none fits, ask rather than guessing — don't invent an eighth folder without saying so.
 - Draft/unsure work goes in `experiments/`, not `generated/`. Only promote it once validated and, ideally, confirmed against a live tenant.
+- If asked for a plain-English/customer-facing builder rather than a specific enquiry: that's `src/compiler.py`'s `compile_request()` (matches against `src/templates.py`'s 14 confirmed report shapes first, falls back to the flexible GL-only compiler, otherwise returns `"unsupported"`) and `tools/enquiry_builder_app.py` on top of it — see `docs/ROADMAP.md` item 10. Adding a *new* template means confirming a new report shape the same way the existing 14 were (a real, validated `build_library.py` function) and tagging it with keywords in `templates.py` — never widening an existing template's keywords or fallback logic to paper over a module this repo doesn't actually have a confirmed shape for.
 
 ## The one rule that matters most
 

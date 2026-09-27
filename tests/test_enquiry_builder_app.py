@@ -3,6 +3,14 @@ Unit tests for tools/enquiry_builder_app.py — the customer-facing web
 front end. Tests call its render functions directly (no real HTTP server),
 since those functions contain all the actual behavior; do_GET/do_POST are
 thin http.server plumbing around them.
+
+This app is a thin skin over src/compiler.py's compile_request(), which
+covers all 7 modules (GL, AR, AP, Sales, Purchasing, Bank, Budgets) via
+src/templates.py's 14 confirmed report shapes plus a flexible GL-only
+fallback — see docs/ROADMAP.md item 10. These tests cover the app's own
+job: translating compile_request()'s four possible statuses ("ok",
+"ambiguous", "invalid", "unsupported") into the right page, never leaking
+internals, and wiring the clarifying-question flow end to end.
 """
 import os
 import sys
@@ -11,11 +19,11 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 
-from enquiry_builder_app import render_form, render_result, friendly_notes  # noqa: E402
+from enquiry_builder_app import render_form, render_result, render_ambiguous, friendly_notes  # noqa: E402
 
 
 class TestRenderResultHappyPath(unittest.TestCase):
-    def test_valid_gl_request_produces_the_ready_page(self):
+    def test_valid_gl_fallback_request_produces_the_ready_page(self):
         html_out = render_result("Show me balance by department and cost centre, monthly")
         self.assertIn("Your report is ready", html_out)
         self.assertIn("DbEnquiry", html_out)  # the escaped JSON is present
@@ -24,6 +32,61 @@ class TestRenderResultHappyPath(unittest.TestCase):
     def test_no_notes_block_when_nothing_to_flag(self):
         html_out = render_result("balance by department")
         self.assertNotIn("A few notes about this report", html_out)
+
+    def test_each_module_s_template_request_produces_the_ready_page(self):
+        # One phrasing per module — confirms the app isn't secretly GL-only
+        # anymore now that it routes through compile_request().
+        requests = [
+            "Show me the trial balance",
+            "Aged debtors, who owes us",
+            "Aged creditors, who do we owe",
+            "Top customers by revenue",
+            "Purchase invoices by supplier by month",
+            "Bank transactions by account",
+            "Budget vs actual by cost centre",
+        ]
+        for text in requests:
+            with self.subTest(text=text):
+                html_out = render_result(text)
+                self.assertIn("Your report is ready", html_out)
+                self.assertNotIn("class=\"error\"", html_out)
+
+    def test_confirmed_template_gets_no_confidence_caveat(self):
+        html_out = render_result("Show me the trial balance")
+        self.assertNotIn("worth double-checking", html_out)
+        self.assertNotIn("draft to verify", html_out)
+
+    def test_mixed_confidence_template_shows_a_caveat(self):
+        # Bank transactions leans on a table src/schema.py records as
+        # inferred rather than confirmed (docs/ROADMAP.md item 4's
+        # bank_transaction column list) — src/confidence.py scores this
+        # template's overall as "mixed", and the app should say so rather
+        # than handing over a silent report.
+        html_out = render_result("Bank transactions by account")
+        self.assertIn("A few notes about this report", html_out)
+        self.assertIn("worth double-checking", html_out)
+
+
+class TestRenderResultAmbiguousFlow(unittest.TestCase):
+    def test_ambiguous_request_offers_a_choice_not_a_guess(self):
+        html_out = render_result("I want the aged debt and aged credit position")
+        self.assertIn("Which one did you mean?", html_out)
+        self.assertIn("Aged debtors by customer", html_out)
+        self.assertIn("Aged creditors by supplier", html_out)
+        self.assertNotIn("Your report is ready", html_out)
+
+    def test_choosing_a_template_key_resolves_to_the_ready_page(self):
+        ambiguous = render_result("I want the aged debt and aged credit position")
+        self.assertIn("ar_aged_debtors", ambiguous)
+        html_out = render_result("I want the aged debt and aged credit position",
+                                   template_key="ar_aged_debtors")
+        self.assertIn("Your report is ready", html_out)
+
+    def test_render_ambiguous_escapes_the_request_text(self):
+        html_out = render_ambiguous("<script>alert(1)</script>",
+                                      [("ar_aged_debtors", "Aged debtors by customer", "AR")])
+        self.assertNotIn("<script>alert(1)</script>", html_out)
+        self.assertIn("&lt;script&gt;", html_out)
 
 
 class TestRenderResultGuardrails(unittest.TestCase):
@@ -36,20 +99,29 @@ class TestRenderResultGuardrails(unittest.TestCase):
         html_out = render_result("   ")
         self.assertIn("class=\"error\"", html_out)
 
-    def test_out_of_scope_request_shows_friendly_error_not_a_wrong_report(self):
-        html_out = render_result("Show me aged debtors by customer")
-        self.assertIn("General Ledger reports only", html_out)
+    def test_truly_out_of_scope_request_shows_friendly_error_not_a_wrong_report(self):
+        # Fixed Assets isn't one of the 7 covered modules (docs/ROADMAP.md
+        # item 9) and has no GL dimension either — nothing should be built.
+        html_out = render_result("Show me our fixed assets register")
+        self.assertIn("class=\"error\"", html_out)
         self.assertIn("contact support", html_out)
+        self.assertNotIn("Your report is ready", html_out)
+
+    def test_gibberish_request_shows_friendly_error(self):
+        html_out = render_result("asdkfj random text with no meaning")
+        self.assertIn("class=\"error\"", html_out)
         self.assertNotIn("Your report is ready", html_out)
 
     def test_no_raw_validator_or_python_internals_leak_to_customer(self):
         # Whatever happens, a customer should never see a stack trace, a
         # module path, or the word "validator"/"NotImplementedError".
-        for request in ("", "aged debtors by customer", "balance by department"):
+        for request in ("", "aged debtors by customer", "balance by department",
+                         "fixed assets register", "I want the aged debt and aged credit position"):
             html_out = render_result(request)
             self.assertNotIn("Traceback", html_out)
             self.assertNotIn("NotImplementedError", html_out)
             self.assertNotIn("enquiry_validator", html_out)
+            self.assertNotIn("compile_request", html_out)
 
     def test_html_in_the_request_is_escaped_not_executed(self):
         html_out = render_result("<script>alert(1)</script> balance by department")

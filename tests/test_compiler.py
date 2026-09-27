@@ -12,8 +12,9 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from spec import EnquirySpec
-from compiler import compile_spec, compile_and_build
+from compiler import compile_spec, compile_and_build, compile_request
 from enquiry_validator import validate_file
+import templates as templates_module
 
 
 def _validate_env(env):
@@ -130,6 +131,93 @@ class TestCompileSpecOutputShape(unittest.TestCase):
         group_row_fields = [g["field"] for g in grid.get("groupRows", [])]
         self.assertEqual(group_row_fields, ["Department"])
         self.assertIn("CostCentre", grid["columns"])
+
+
+class TestCompileRequestTemplateMatch(unittest.TestCase):
+    """compile_request() is the multi-module entry point: a clear template
+    match builds that exact confirmed report (docs/ROADMAP.md item 10's
+    "complete enquiry builder" expansion) — see src/templates.py for the
+    matching rules themselves, tested separately in tests/test_templates.py."""
+
+    def test_clear_template_match_returns_ok_with_template(self):
+        result = compile_request("Show me the trial balance")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["template"].key, "gl_trial_balance")
+        self.assertEqual(result["confidence"]["overall"], "confirmed")
+        self.assertIn('"type": "DbEnquiry"', result["env"])
+
+    def test_template_result_covers_every_module(self):
+        # One phrasing per module, confirming compile_request() isn't
+        # secretly GL-only anymore.
+        cases = {
+            "GL": "trial balance",
+            "AR": "aged debtors, who owes us",
+            "AP": "aged creditors, who do we owe",
+            "Sales": "top customers by revenue",
+            "Purchasing": "purchase invoices by supplier by month",
+            "Bank": "bank transactions by account",
+            "Budgets": "budget vs actual by cost centre",
+        }
+        for module, text in cases.items():
+            with self.subTest(module=module):
+                result = compile_request(text)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["template"].module, module)
+
+    def test_ambiguous_when_two_templates_tie(self):
+        # Force an artificial tie by asking with only a shared-weight phrase
+        # from two distinct templates' keyword lists, one keyword each.
+        # ("aged debt" and "aged credit" score 1 each and belong to
+        # different templates when both phrases appear.)
+        result = compile_request("I want the aged debt and aged credit position")
+        self.assertEqual(result["status"], "ambiguous")
+        keys = {c[0] for c in result["candidates"]}
+        self.assertEqual(keys, {"ar_aged_debtors", "ap_aged_creditors"})
+
+    def test_chosen_template_key_resolves_an_ambiguous_result(self):
+        ambiguous = compile_request("I want the aged debt and aged credit position")
+        chosen_key = sorted(c[0] for c in ambiguous["candidates"])[0]
+        resolved = compile_request(None, chosen_template_key=chosen_key)
+        self.assertEqual(resolved["status"], "ok")
+        self.assertEqual(resolved["template"].key, chosen_key)
+
+    def test_unknown_chosen_template_key_is_unsupported_not_a_crash(self):
+        result = compile_request(None, chosen_template_key="not_a_real_key")
+        self.assertEqual(result["status"], "unsupported")
+
+    def test_every_template_builds_ok_via_compile_request(self):
+        for tpl in templates_module.TEMPLATES:
+            with self.subTest(key=tpl.key):
+                result = compile_request(None, chosen_template_key=tpl.key)
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["warnings"], [])
+
+
+class TestCompileRequestFlexibleGlFallback(unittest.TestCase):
+    """A GL request with a custom dimension combination that matches no
+    fixed template still falls through to the flexible compiler."""
+
+    def test_custom_gl_dimension_combo_falls_back_and_builds(self):
+        result = compile_request("Show me GL balance by department and cost centre, monthly")
+        self.assertEqual(result["status"], "ok")
+        self.assertIsNone(result["template"])
+        self.assertIn('"type": "DbEnquiry"', result["env"])
+
+    def test_fallback_result_still_carries_confidence(self):
+        result = compile_request("Balance by fund and location")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn("confidence", result)
+
+
+class TestCompileRequestUnsupported(unittest.TestCase):
+    def test_out_of_scope_module_with_no_template_match_is_unsupported(self):
+        result = compile_request("Show me our fixed assets register")
+        self.assertEqual(result["status"], "unsupported")
+
+    def test_gibberish_is_unsupported_not_a_guess(self):
+        result = compile_request("asdkfj random text with no meaning")
+        self.assertEqual(result["status"], "unsupported")
+        self.assertNotIn("env", result)
 
 
 if __name__ == "__main__":
