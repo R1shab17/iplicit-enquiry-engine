@@ -1,0 +1,402 @@
+"""
+Build the library of ready-to-import iplicit enquiries using enqgen.py.
+
+Output goes straight into ../generated/<module>/ (gl, ar, ap, sales,
+purchasing, bank, budgets) — each emit() call's filename carries its module
+as a prefix, e.g. "gl/01_gl_trial_balance.json". Regenerate after editing
+any build step below, then re-validate with enquiry_validator.py before
+trusting the new output:
+
+    python3 build_library.py
+    python3 enquiry_validator.py ../generated/**/*.json
+"""
+import os, json
+from enqgen import *
+
+GENERATED = os.path.join(os.path.dirname(__file__), "..", "generated")
+CATALOG = []
+
+def emit(filename, description, group, qxml, propmeta, layouts, permissions, notes):
+    env, model = build(description, group, qxml, propmeta, layouts, permissions=permissions)
+    path = os.path.join(GENERATED, filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(env)
+    CATALOG.append(dict(filename=filename, description=description, group=group, notes=notes))
+    return path
+
+LE_PARAM = param("LegalEntityId", "Legal entity", setting_xml=setting("LegalEntity"))
+CUR_PARAM = param("Currency", "Currency", setting_xml=setting("Currency", value_member="Code"), default="#def_cur_code", mandatory=True)
+
+# ---------------------------------------------------------------- 1. Trial balance
+P = [LE_PARAM,
+     param("FinancialYearGroupId", "Financial year group", "Guid",
+           setting_xml=setting("FinancialYearGroup", catalog="FinancialYearGroupForLegalEntity",
+                                bindings=[("LegalEntity", "Text", "LegalEntity")]),
+           default="#def_financial_year_group"),
+     param("PeriodId", "Period", setting_xml=setting("Period", catalog="PeriodsForFYG_FY_LE",
+           bindings=[("FinancialYearGroupId", "Guid", "FinancialYearGroup"), ("LegalEntityId", "Text", "LegalEntity")])),
+     CUR_PARAM]
+S = [{"name": "Main", "sources": [
+        src("g", "[dbo].[dac_gl]", "View"),
+        src("a", "[dbo].[account]", join="InnerJoin", on="[a].[id] = [g].[account_id]"),
+        src("le", "[dbo].[legal_entity]", join="InnerJoin", on="[le].[id] = [g].[legal_entity_id]"),
+        src("p", "[dbo].[period]", join="InnerJoin", on="[p].[id] = [g].[period_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "g", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("PeriodId", "period_id", "g", op="In", arg="@PeriodId", orr="@PeriodId is null", output=False),
+        fld("AccountId", "account_id", "g"),
+        fld("AccountCode", "code", "a"),
+        fld("AccountDescription", "description", "a"),
+        fld("Debit", "CASE WHEN SUM([g].[amount]) > 0 THEN SUM([g].[amount]) ELSE 0 END", type="Summary"),
+        fld("Credit", "CASE WHEN SUM([g].[amount]) < 0 THEN -SUM([g].[amount]) ELSE 0 END", type="Summary"),
+        fld("Balance", "SUM([g].[amount])", type="Summary"),
+        fld("BaseCurrency", "base_currency", "g", op="Equal", arg="@Currency"),
+     ]}]
+M = {"AccountId": m_catalog("AccountId", "Account", "Account", 220),
+     "AccountCode": m_text("AccountCode", "Code", 90),
+     "AccountDescription": m_text("AccountDescription", "Description", 220),
+     "Debit": m_amount("Debit", "Debit"), "Credit": m_amount("Credit", "Credit"), "Balance": m_amount("Balance", "Balance"),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60)}
+L = [layout("Trial balance", ["AccountCode", "AccountDescription", "Debit", "Credit", "Balance"],
+            group_rows=[{"field": "AccountId", "sticky": True}], group_data=[{"field": "Balance", "aggregator": "sum"}],
+            includes=["BaseCurrency"])]
+emit("gl/01_gl_trial_balance.json", "Trial balance by legal entity and period", "GL", query_xml(P, S), M, L,
+     [PERM["GeneralLedger.TrialBalance"]],
+     "Debit/Credit split derived from the base-currency Amount sign; Balance = net. LegalEntityId/PeriodId are "
+     "filter-only (Output=False) so they don't force a finer implicit GROUP BY than 'one row per account'.")
+
+# ---------------------------------------------------------------- 2. GL detail with dims
+P = [LE_PARAM,
+     param("AccountId", "Account", setting_xml=setting("Account", filter="Extra.account_type IS NOT NULL")),
+     param("DateFrom", "Date from", "Date", "Date"), param("DateTo", "Date to", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("g", "[dbo].[dac_gl]", "View"),
+        src("a", "[dbo].[account]", join="InnerJoin", on="[a].[id] = [g].[account_id]"),
+        src("cg", "[generated].[crv_gl]", join="LeftJoin", on="[g].[id] = [cg].[id]"),
+        src("db", "[dbo].[dac_doc_base]", join="LeftJoin", on="[db].[id] = [g].[doc_id]"),
+     ], "fields": [
+        multi_filter("LegalEntityId", "legal_entity_id", "g", "LegalEntityId"),
+        multi_filter("AccountId", "account_id", "g", "AccountId"),
+        fld("PeriodDate", "period_date", "g", op="Between", arg="ISNULL(@DateFrom,{0}) AND ISNULL(@DateTo,{0})"),
+        fld("DocNo", "doc_no", "g"), fld("DocId", "doc_id", "g"),
+        fld("Description", "description", "g"),
+        fld("Department", "Department", "cg"), fld("CostCentre", "CostCentre", "cg"),
+        fld("ContactAccountId", "contact_account_id", "g"),
+        fld("CurrencyAmount", "currency_amount", "g"), fld("Amount", "amount", "g"),
+        fld("Currency", "currency", "g"), fld("BaseCurrency", "base_currency", "g"),
+        fld("LastModifiedBy", "last_modified_by", "g"),
+     ]}]
+M = {"LegalEntityId": m_catalog("LegalEntityId", "Legal entity", "LegalEntity", 160),
+     "AccountId": m_catalog("AccountId", "Account", "Account", 220),
+     "PeriodDate": m_date("PeriodDate", "Date"), "DocNo": m_link("DocNo", "Doc no"),
+     "DocId": meta("DocId", "Doc", "guid", None), "Description": m_text("Description", "Description", 220),
+     "Department": m_text("Department", "Department", 100), "CostCentre": m_text("CostCentre", "Cost centre", 100),
+     "ContactAccountId": m_catalog("ContactAccountId", "Contact account", "ContactAccount", 180),
+     "CurrencyAmount": m_amount("CurrencyAmount", "Amount (currency)", "Currency"),
+     "Amount": m_amount("Amount", "Amount"), "Currency": m_text("Currency", "Currency", 60),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60),
+     "LastModifiedBy": meta("LastModifiedBy", "Last modified by", "text", "catalog", 120, attribute="UserAccount", valueMember="Code")}
+L = [layout("GL detail", ["PeriodDate", "DocNo", "Description", "Department", "CostCentre", "ContactAccountId", "Amount"],
+            includes=["DocId", "Currency", "BaseCurrency"], sort_by=[{"field": "PeriodDate", "descending": True}])]
+emit("gl/02_gl_detail_by_nominal.json", "GL detail by nominal (with department & cost centre)", "GL", query_xml(P, S), M, L,
+     [PERM["GeneralLedger.Enquiry"]],
+     "Flat list (no Summary fields), so extra Column fields don't distort grouping. Department/CostCentre pulled via crv_gl left join.")
+
+# ---------------------------------------------------------------- 3. Balance sheet by department & nominal
+P = [LE_PARAM, CUR_PARAM]
+S = [{"name": "Main", "sources": [
+        src("g", "[dbo].[dac_gl]", "View"),
+        src("a", "[dbo].[account]", join="InnerJoin", on="[a].[id] = [g].[account_id]"),
+        src("cg", "[generated].[crv_gl]", join="LeftJoin", on="[g].[id] = [cg].[id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "g", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("AccountType", "account_type", "a", op="Equal", arg="'BS'", output=False),
+        fld("AccountId", "account_id", "g"), fld("Department", "Department", "cg"),
+        fld("BaseCurrency", "base_currency", "g", op="Equal", arg="@Currency"),
+        fld("Balance", "SUM([g].[amount])", type="Summary"),
+     ]}]
+M = {"AccountId": m_catalog("AccountId", "Account", "Account", 240), "Department": m_text("Department", "Department", 100),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60), "Balance": m_amount("Balance", "Balance")}
+L = [layout("Department & Nominal", ["AccountId", "Department", "Balance"],
+            group_rows=[{"field": "Department", "sticky": True}, {"field": "AccountId", "sticky": True}],
+            group_data=[{"field": "Balance", "aggregator": "sum"}], includes=["BaseCurrency"])]
+emit("gl/03_balance_sheet_by_department_nominal.json", "Balance sheet by department and nominal", "GL", query_xml(P, S), M, L,
+     [PERM["GeneralLedger.BalanceSheet"]],
+     "No 'hierarchy' tree — deliberately, since it conflicts with the 2-level groupRows (confirmed this session). "
+     "LegalEntityId/AccountType are filter-only. Reusable, parameterised version of the one built earlier in this conversation.")
+
+# ---------------------------------------------------------------- 4. P&L by month
+P = [LE_PARAM, CUR_PARAM,
+     param("FinancialYear", "Financial year", setting_xml=setting("FinancialYear", catalog="FinancialYearsForGroupOrDefaults"))]
+S = [{"name": "Main", "sources": [
+        src("g", "[dbo].[dac_gl]", "View"),
+        src("a", "[dbo].[account]", join="InnerJoin", on="[a].[id] = [g].[account_id]"),
+        src("p", "[dbo].[period]", join="InnerJoin", on="[p].[id] = [g].[period_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "g", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("FinancialYearId", "financial_year_id", "p", op="In", arg="@FinancialYear", orr="@FinancialYear is null", output=False),
+        fld("AccountType", "account_type", "a", op="Equal", arg="'PL'", output=False),
+        fld("AccountId", "account_id", "g"),
+        fld("Month", "FORMAT([p].[date_from],'yyyy-MM')", type="Expression"),
+        fld("BaseCurrency", "base_currency", "g", op="Equal", arg="@Currency"),
+        fld("Amount", "SUM([g].[amount])", type="Summary"),
+     ]}]
+M = {"AccountId": m_catalog("AccountId", "Account", "Account", 240), "Month": m_text("Month", "Month", 80),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60), "Amount": m_amount("Amount", "Amount")}
+L = [layout("P&L by month", ["AccountId", "Amount"], group_rows=[{"field": "AccountId", "sticky": True}],
+            group_columns=[{"field": "Month", "total": True}], group_data=[{"field": "Amount", "aggregator": "sum"}],
+            includes=["BaseCurrency"],
+            extra={"hierarchy": {"treeId": "STANDARD_PL_TREE_ID_REPLACE_ME", "name": "Standard P&L tree"}})]
+emit("gl/04_pl_by_month.json", "Profit & loss by month", "GL", query_xml(P, S), M, L,
+     [PERM["GeneralLedger.ProfitLoss"]],
+     "Uses a P&L tree hierarchy on a SINGLE-level groupRows (AccountId only) — safe combination, unlike #3. "
+     "treeId is a placeholder: replace with your tenant's actual P&L tree id (Export any existing P&L enquiry to find it), "
+     "or delete the hierarchy key for a flat grouping.")
+
+# ---------------------------------------------------------------- 5. Aged debtors
+P = [LE_PARAM, param("AsOfDate", "As of date", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("r", "select * from [dbo].[GetAgedDebt]('due_date', @AsOfDate) r", "Sql", "Principal"),
+        src("db", "[dbo].[dac_doc_base]", join="InnerJoin", on="[db].[id] = [r].[id]"),
+        src("ca", "[dbo].[contact_account]", join="InnerJoin", on="[ca].[id] = [db].[contact_account_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("ContactAccountId", "id", "ca"), fld("ContactAccountCode", "code", "ca"),
+        fld("ContactAccountDescription", "description", "ca"),
+        fld("DocNo", "doc_no", "db"), fld("DueDate", "due_date", "db"),
+        fld("Outstanding", "cur_outs_amount", "r", type="Summary"),
+     ]}]
+M = {"ContactAccountId": m_catalog("ContactAccountId", "Customer", "Customer", 200),
+     "ContactAccountCode": m_text("ContactAccountCode", "Code", 90),
+     "ContactAccountDescription": m_text("ContactAccountDescription", "Name", 220),
+     "DocNo": m_link("DocNo", "Doc no"), "DueDate": m_date("DueDate", "Due date"),
+     "Outstanding": m_decimal("Outstanding", "Outstanding")}
+L = [layout("Aged debtors", ["ContactAccountCode", "ContactAccountDescription", "Outstanding"],
+            group_rows=[{"field": "ContactAccountId", "sticky": True}], group_data=[{"field": "Outstanding", "aggregator": "sum"}],
+            detail={"columns": ["DocNo", "DueDate", "Outstanding"], "sortBy": [{"field": "DueDate", "descending": False}]})]
+emit("ar/05_aged_debtors_by_customer.json", "Aged debtors by customer", "AR", query_xml(P, S), M, L,
+     [PERM["AR.Enquiry"], PERM["Customer.Enquiry"]],
+     "Uses dbo.GetAgedDebt as principal Sql source per the master skill's documented pattern. Outstanding uses plain "
+     "'decimal' viewType, not 'amount', because GetAgedDebt's currency columns aren't confirmed — verify before "
+     "switching to amount+currencyMember. For bucketed ageing (0-30/31-60/...), add CROSS APPLY "
+     "dbo.GetIntervalRange(@IntervalId, days) and group by its 'range' column.")
+
+# ---------------------------------------------------------------- 6. Top customers by revenue
+P = [LE_PARAM, param("DateFrom", "Date from", "Date", "Date"), param("DateTo", "Date to", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("db", "[dbo].[dac_doc_base]", "View"),
+        src("dt", "[dbo].[doc_type]", join="InnerJoin", on="[dt].[id] = [db].[doc_type_id] AND [dt].[is_sale] = 1"),
+        src("ca", "[dbo].[contact_account]", join="InnerJoin", on="[ca].[id] = [db].[contact_account_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("DocDate", "doc_date", "db", op="Between", arg="ISNULL(@DateFrom,{0}) AND ISNULL(@DateTo,{0})", output=False),
+        fld("ContactAccountId", "id", "ca"), fld("ContactAccountDescription", "description", "ca"),
+        fld("BaseCurrency", "base_currency", "db"),
+        fld("Revenue", "SUM([db].[net_amount] * [dt].[mul_control])", type="Summary"),
+     ]}]
+M = {"ContactAccountId": m_catalog("ContactAccountId", "Customer", "Customer", 220),
+     "ContactAccountDescription": m_text("ContactAccountDescription", "Name", 220),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60), "Revenue": m_amount("Revenue", "Revenue")}
+L = [layout("Top customers", ["ContactAccountDescription", "Revenue"],
+            group_rows=[{"field": "ContactAccountId", "sticky": True}], group_data=[{"field": "Revenue", "aggregator": "sum"}],
+            includes=["BaseCurrency"], sort_by=[{"field": "Revenue", "descending": True}])]
+emit("sales/06_top_customers_by_revenue.json", "Top customers by revenue", "Sale", query_xml(P, S), M, L,
+     [PERM["SaleInvoice.Enquiry"], PERM["Customer.Enquiry"]],
+     "DocDate is filter-only (Output=False) — as a raw Column it would otherwise force grouping by (customer, date) "
+     "instead of a single total per customer across the whole range. Ranking/'top N' is done by sorting the grid "
+     "descending, not a SQL TOP-per-group.")
+
+# ---------------------------------------------------------------- 7. Aged creditors
+P = [LE_PARAM, param("AsOfDate", "As of date", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("r", "select * from [dbo].[GetAgedCreditors]('due_date', @AsOfDate) r", "Sql", "Principal"),
+        src("db", "[dbo].[dac_doc_base]", join="InnerJoin", on="[db].[id] = [r].[id]"),
+        src("ca", "[dbo].[contact_account]", join="InnerJoin", on="[ca].[id] = [db].[contact_account_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("ContactAccountId", "id", "ca"), fld("ContactAccountDescription", "description", "ca"),
+        fld("DocNo", "doc_no", "db"), fld("DueDate", "due_date", "db"),
+        fld("Outstanding", "cur_outs_amount", "r", type="Summary"),
+     ]}]
+M = {"ContactAccountId": m_catalog("ContactAccountId", "Supplier", "Supplier", 220),
+     "ContactAccountDescription": m_text("ContactAccountDescription", "Name", 220),
+     "DocNo": m_link("DocNo", "Doc no"), "DueDate": m_date("DueDate", "Due date"),
+     "Outstanding": m_decimal("Outstanding", "Outstanding")}
+L = [layout("Aged creditors", ["ContactAccountDescription", "Outstanding"],
+            group_rows=[{"field": "ContactAccountId", "sticky": True}], group_data=[{"field": "Outstanding", "aggregator": "sum"}],
+            detail={"columns": ["DocNo", "DueDate", "Outstanding"], "sortBy": [{"field": "DueDate", "descending": False}]})]
+emit("ap/07_aged_creditors_by_supplier.json", "Aged creditors by supplier", "AP", query_xml(P, S), M, L,
+     [PERM["AR.Enquiry"], PERM["Supplier.Enquiry"]],
+     "Mirror of #5 using GetAgedCreditors. Permission list reuses AR.Enquiry pending confirmation of a dedicated "
+     "AP.Enquiry id in your tenant.")
+
+# ---------------------------------------------------------------- 8. Purchase invoices by supplier by month
+P = [LE_PARAM]
+S = [{"name": "Main", "sources": [
+        src("db", "[dbo].[dac_doc_base]", "View"),
+        src("dt", "[dbo].[doc_type]", join="InnerJoin", on="[dt].[id] = [db].[doc_type_id] AND [dt].[is_purchase] = 1"),
+        src("ca", "[dbo].[contact_account]", join="InnerJoin", on="[ca].[id] = [db].[contact_account_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("ContactAccountId", "id", "ca"), fld("ContactAccountDescription", "description", "ca"),
+        fld("Month", "FORMAT([db].[doc_date],'yyyy-MM')", type="Expression"),
+        fld("BaseCurrency", "base_currency", "db"),
+        fld("NetAmount", "SUM([db].[net_amount] * [dt].[mul_control])", type="Summary"),
+     ]}]
+M = {"ContactAccountId": m_catalog("ContactAccountId", "Supplier", "Supplier", 220),
+     "ContactAccountDescription": m_text("ContactAccountDescription", "Name", 220),
+     "Month": m_text("Month", "Month", 80), "BaseCurrency": m_text("BaseCurrency", "Base currency", 60),
+     "NetAmount": m_amount("NetAmount", "Net")}
+L = [layout("By supplier", ["ContactAccountDescription", "NetAmount"], group_rows=[{"field": "ContactAccountId", "sticky": True}],
+            group_columns=[{"field": "Month", "total": True}], group_data=[{"field": "NetAmount", "aggregator": "sum"}],
+            includes=["BaseCurrency"])]
+emit("purchasing/08_purchase_invoices_by_supplier_month.json", "Purchase invoices by supplier by month", "Purchase", query_xml(P, S), M, L,
+     [PERM["PurchaseInvoice.Enquiry"], PERM["Supplier.Enquiry"]],
+     "Direct mirror of the tested 'Sales by customer by month' pattern, swapped to is_purchase / Supplier.")
+
+# ---------------------------------------------------------------- 9. Overdue purchase invoices
+P = [LE_PARAM, param("AsOfDate", "As of date", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("db", "[dbo].[dac_doc_base]", "View"),
+        src("dt", "[dbo].[doc_type]", join="InnerJoin", on="[dt].[id] = [db].[doc_type_id] AND [dt].[is_purchase] = 1"),
+        src("do_", "[dbo].[doc_outstanding]", join="InnerJoin", on="[do_].[id] = [db].[id]"),
+        src("ca", "[dbo].[contact_account]", join="InnerJoin", on="[ca].[id] = [db].[contact_account_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("DueDateFilter", "due_date", "db", op="Less", arg="@AsOfDate", output=False),
+        fld("ContactAccountId", "id", "ca"), fld("ContactAccountDescription", "description", "ca"),
+        fld("DocNo", "doc_no", "db"), fld("DueDate", "due_date", "db"),
+        fld("BaseCurrency", "base_currency", "db"),
+        fld("Outstanding", "cur_outs_amount", "do_"),
+        fld("HasOutstanding", "cur_outs_amount", "do_", op="NotEqual", arg="0", output=False),
+     ]}]
+M = {"ContactAccountId": m_catalog("ContactAccountId", "Supplier", "Supplier", 220),
+     "ContactAccountDescription": m_text("ContactAccountDescription", "Name", 220),
+     "DocNo": m_link("DocNo", "Doc no"), "DueDate": m_date("DueDate", "Due date"),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60), "Outstanding": m_amount("Outstanding", "Outstanding")}
+L = [layout("Overdue", ["ContactAccountDescription", "DocNo", "DueDate", "Outstanding"],
+            includes=["BaseCurrency"], sort_by=[{"field": "DueDate", "descending": False}])]
+emit("ap/09_overdue_purchase_invoices.json", "Overdue purchase invoices", "Purchase", query_xml(P, S), M, L,
+     [PERM["PurchaseInvoice.Enquiry"], PERM["Supplier.Enquiry"]],
+     "Flat list: due_date < AsOfDate AND still outstanding (HasOutstanding filter-only field). Not aged into buckets — see #7.")
+
+# ---------------------------------------------------------------- 10. Bank transactions by account
+P = [LE_PARAM, param("BankAccountId", "Bank account", setting_xml=setting("BankAccount")),
+     param("DateFrom", "Date from", "Date", "Date"), param("DateTo", "Date to", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("bt", "[dbo].[bank_transaction]", "Table"),
+        src("ba", "[dbo].[bank_account]", join="InnerJoin", on="[ba].[id] = [bt].[bank_account_id]"),
+     ], "fields": [
+        fld("BankAccountId", "bank_account_id", "bt", op="In", arg="@BankAccountId", orr="@BankAccountId is null", output=False),
+        fld("TransDate", "trans_date", "bt", op="Between", arg="ISNULL(@DateFrom,{0}) AND ISNULL(@DateTo,{0})"),
+        fld("BankAccountCode", "code", "ba"), fld("Description", "description", "bt"), fld("Amount", "amount", "bt"),
+     ]}]
+M = {"TransDate": m_date("TransDate", "Date"), "BankAccountCode": m_text("BankAccountCode", "Bank account", 100),
+     "Description": m_text("Description", "Description", 220), "Amount": m_decimal("Amount", "Amount")}
+L = [layout("By account", ["TransDate", "BankAccountCode", "Description", "Amount"], sort_by=[{"field": "TransDate", "descending": True}])]
+emit("bank/10_bank_transactions_by_account.json", "Bank transactions by account", "Bank", query_xml(P, S), M, L,
+     [PERM["Cashbook.Enquiry"]],
+     "Base-table join since bank_transaction has no dac_* equivalent documented in the master skill. Amount uses plain "
+     "'decimal' viewType (currency column on bank_transaction not confirmed) — verify against the live schema before relying on this one.")
+
+# ---------------------------------------------------------------- 11. Manual journals in date range
+P = [LE_PARAM, param("DateFrom", "Date from", "Date", "Date"), param("DateTo", "Date to", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("db", "[dbo].[dac_doc_base]", "View"),
+        src("dt", "[dbo].[doc_type]", join="InnerJoin", on="[dt].[id] = [db].[doc_type_id] AND [dt].[is_gl] = 1"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("PostDate", "doc_date", "db", op="Between", arg="ISNULL(@DateFrom,{0}) AND ISNULL(@DateTo,{0})"),
+        fld("DocNo", "doc_no", "db"), fld("Description", "description", "db"),
+        fld("CreatedBy", "created_by", "db"), fld("BaseCurrency", "base_currency", "db"),
+        fld("NetAmount", "net_amount", "db"),
+     ]}]
+M = {"PostDate": m_date("PostDate", "Date"), "DocNo": m_link("DocNo", "Doc no"),
+     "Description": m_text("Description", "Description", 250),
+     "CreatedBy": meta("CreatedBy", "Created by", "text", "catalog", 120, attribute="UserAccount", valueMember="Code"),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60), "NetAmount": m_amount("NetAmount", "Amount")}
+L = [layout("Manual journals", ["PostDate", "DocNo", "Description", "CreatedBy", "NetAmount"],
+            includes=["BaseCurrency"], sort_by=[{"field": "PostDate", "descending": True}])]
+emit("gl/11_manual_journals_by_date.json", "Manual journals posted in a date range", "GL", query_xml(P, S), M, L,
+     [PERM["ManualJournal.Enquiry"]],
+     "doc_type.is_gl=1 identifies manual-journal-family documents per the master skill.")
+
+# ---------------------------------------------------------------- 12. Documents by user
+P = [LE_PARAM]
+S = [{"name": "Main", "sources": [src("db", "[dbo].[dac_doc_base]", "View")],
+      "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("DocNo", "doc_no", "db"), fld("Description", "description", "db"),
+        fld("DocDate", "doc_date", "db"), fld("CreatedBy", "created_by", "db"),
+        fld("LastModifiedBy", "created_by", "db"),  # placeholder — see note
+      ]}]
+M = {"DocNo": m_link("DocNo", "Doc no"), "Description": m_text("Description", "Description", 220),
+     "DocDate": m_date("DocDate", "Date"),
+     "CreatedBy": meta("CreatedBy", "Created by", "text", "catalog", 120, attribute="UserAccount", valueMember="Code"),
+     "LastModifiedBy": meta("LastModifiedBy", "Last modified by", "text", "catalog", 120, attribute="UserAccount", valueMember="Code")}
+L = [layout("By user", ["DocNo", "Description", "DocDate", "CreatedBy", "LastModifiedBy"])]
+emit("gl/12_documents_by_user.json", "Documents created/last modified by user", "DocBase", query_xml(P, S), M, L,
+     [PERM["DocBase.Enquiry"]],
+     "CAUTION: dac_doc_base's own last_modified_by column wasn't confirmed anywhere in the master skill (only "
+     "dac_gl's and account's were) — LastModifiedBy is stubbed to created_by here as a placeholder. Check "
+     "INFORMATION_SCHEMA.COLUMNS on dac_doc_base before relying on this one; swap the Sql if a real column exists.")
+
+# ---------------------------------------------------------------- 13. Budget vs actual
+P = [LE_PARAM, param("PeriodId", "Period", setting_xml=setting("Period"))]
+S = [{"name": "Budget", "sources": [
+        src("bv", "[dbo].[budget2_value]", "Table"),
+        src("bk", "[dbo].[budget2_key]", join="InnerJoin", on="[bk].[id] = [bv].[budget_key_id]"),
+     ], "fields": [
+        fld("PeriodId", "period_id", "bv", op="In", arg="@PeriodId", orr="@PeriodId is null", output=False),
+        fld("AccountId", "account_id", "bk"), fld("CostCentre", "cost_centre", "bk"),
+        fld("BudgetAmount", "SUM([bv].[amount])", type="Summary"), fld("ActualAmount", "0", type="Constant", output=True),
+     ]},
+     {"name": "Actual", "union": "UnionAll", "sources": [
+        src("g", "[dbo].[dac_gl]", "View"),
+        src("cg", "[generated].[crv_gl]", join="LeftJoin", on="[g].[id] = [cg].[id]"),
+     ], "fields": [
+        fld("PeriodId", "period_id", "g", op="In", arg="@PeriodId", orr="@PeriodId is null", output=False),
+        fld("AccountId", "account_id", "g"), fld("CostCentre", "CostCentre", "cg"),
+        fld("BudgetAmount", "0", type="Constant", output=True), fld("ActualAmount", "SUM([g].[amount])", type="Summary"),
+     ]}]
+M = {"AccountId": m_catalog("AccountId", "Account", "Account", 220), "CostCentre": m_text("CostCentre", "Cost centre", 100),
+     "BudgetAmount": m_decimal("BudgetAmount", "Budget"), "ActualAmount": m_decimal("ActualAmount", "Actual")}
+L = [layout("Budget vs actual", ["AccountId", "CostCentre", "BudgetAmount", "ActualAmount"],
+            group_rows=[{"field": "AccountId", "sticky": True}, {"field": "CostCentre", "sticky": True}],
+            group_data=[{"field": "BudgetAmount", "aggregator": "sum"}, {"field": "ActualAmount", "aggregator": "sum"}])]
+emit("budgets/13_budget_vs_actual.json", "Budget vs actual by cost centre", "GL", query_xml(P, S), M, L,
+     [PERM["BudgetForecast.Enquiry"]],
+     "UNION ALL of budget2_value and dac_gl, both padded with a 0 Constant for the column the other side doesn't have "
+     "so the two Selects output identical field lists (required — see master skill union rule). Amounts use plain "
+     "'decimal' viewType since there's no single shared currency field across the union. PeriodId is filter-only.")
+
+# ---------------------------------------------------------------- 14. Credit notes issued by period
+P = [LE_PARAM, param("DateFrom", "Date from", "Date", "Date"), param("DateTo", "Date to", "Date", "Date", default="#today")]
+S = [{"name": "Main", "sources": [
+        src("db", "[dbo].[dac_doc_base]", "View"),
+        src("dt", "[dbo].[doc_type]", join="InnerJoin", on="[dt].[id] = [db].[doc_type_id] AND [dt].[is_credit_note] = 1"),
+        src("ca", "[dbo].[contact_account]", join="LeftJoin", on="[ca].[id] = [db].[contact_account_id]"),
+     ], "fields": [
+        fld("LegalEntityId", "legal_entity_id", "db", op="In", arg="@LegalEntityId", orr="@LegalEntityId is null", output=False),
+        fld("DocDate", "doc_date", "db", op="Between", arg="ISNULL(@DateFrom,{0}) AND ISNULL(@DateTo,{0})"),
+        fld("DocNo", "doc_no", "db"), fld("ContactAccountId", "id", "ca"),
+        fld("ContactAccountDescription", "description", "ca"),
+        fld("BaseCurrency", "base_currency", "db"),
+        fld("GrossAmount", "[db].[gross_amount] * [dt].[mul_control]", type="Expression"),
+     ]}]
+M = {"DocNo": m_link("DocNo", "Doc no"), "DocDate": m_date("DocDate", "Date"),
+     "ContactAccountId": m_catalog("ContactAccountId", "Contact", "ContactAccount", 200),
+     "ContactAccountDescription": m_text("ContactAccountDescription", "Name", 220),
+     "BaseCurrency": m_text("BaseCurrency", "Base currency", 60), "GrossAmount": m_amount("GrossAmount", "Gross")}
+L = [layout("Credit notes", ["DocNo", "DocDate", "ContactAccountDescription", "GrossAmount"], includes=["BaseCurrency"])]
+emit("sales/14_credit_notes_by_period.json", "Credit notes issued by period", "Sale", query_xml(P, S), M, L,
+     [PERM["SaleInvoice.Enquiry"]],
+     "Flat list (no Summary fields) so DocDate can safely double as both filter and display column. "
+     "doc_type.is_credit_note=1 filters to credit notes; mul_control applied for the correct sign.")
+
+# ---------------------------------------------------------------- write catalog
+with open(os.path.join(GENERATED, "catalog.json"), "w") as f:
+    json.dump(CATALOG, f, indent=2)
+
+print(f"Built {len(CATALOG)} enquiries into {GENERATED}")

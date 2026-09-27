@@ -1,0 +1,86 @@
+[
+  {
+    "filename": "gl/01_gl_trial_balance.json",
+    "description": "Trial balance by legal entity and period",
+    "group": "GL",
+    "notes": "Debit/Credit split derived from the base-currency Amount sign; Balance = net. LegalEntityId/PeriodId are filter-only (Output=False) so they don't force a finer implicit GROUP BY than 'one row per account'."
+  },
+  {
+    "filename": "gl/02_gl_detail_by_nominal.json",
+    "description": "GL detail by nominal (with department & cost centre)",
+    "group": "GL",
+    "notes": "Flat list (no Summary fields), so extra Column fields don't distort grouping. Department/CostCentre pulled via crv_gl left join."
+  },
+  {
+    "filename": "gl/03_balance_sheet_by_department_nominal.json",
+    "description": "Balance sheet by department and nominal",
+    "group": "GL",
+    "notes": "No 'hierarchy' tree \u2014 deliberately, since it conflicts with the 2-level groupRows (confirmed this session). LegalEntityId/AccountType are filter-only. Reusable, parameterised version of the one built earlier in this conversation."
+  },
+  {
+    "filename": "gl/04_pl_by_month.json",
+    "description": "Profit & loss by month",
+    "group": "GL",
+    "notes": "Uses a P&L tree hierarchy on a SINGLE-level groupRows (AccountId only) \u2014 safe combination, unlike #3. treeId is a placeholder: replace with your tenant's actual P&L tree id (Export any existing P&L enquiry to find it), or delete the hierarchy key for a flat grouping."
+  },
+  {
+    "filename": "ar/05_aged_debtors_by_customer.json",
+    "description": "Aged debtors by customer",
+    "group": "AR",
+    "notes": "Uses dbo.GetAgedDebt as principal Sql source per the master skill's documented pattern. Outstanding uses plain 'decimal' viewType, not 'amount', because GetAgedDebt's currency columns aren't confirmed \u2014 verify before switching to amount+currencyMember. For bucketed ageing (0-30/31-60/...), add CROSS APPLY dbo.GetIntervalRange(@IntervalId, days) and group by its 'range' column."
+  },
+  {
+    "filename": "sales/06_top_customers_by_revenue.json",
+    "description": "Top customers by revenue",
+    "group": "Sale",
+    "notes": "DocDate is filter-only (Output=False) \u2014 as a raw Column it would otherwise force grouping by (customer, date) instead of a single total per customer across the whole range. Ranking/'top N' is done by sorting the grid descending, not a SQL TOP-per-group."
+  },
+  {
+    "filename": "ap/07_aged_creditors_by_supplier.json",
+    "description": "Aged creditors by supplier",
+    "group": "AP",
+    "notes": "Mirror of #5 using GetAgedCreditors. Permission list reuses AR.Enquiry pending confirmation of a dedicated AP.Enquiry id in your tenant."
+  },
+  {
+    "filename": "purchasing/08_purchase_invoices_by_supplier_month.json",
+    "description": "Purchase invoices by supplier by month",
+    "group": "Purchase",
+    "notes": "Direct mirror of the tested 'Sales by customer by month' pattern, swapped to is_purchase / Supplier."
+  },
+  {
+    "filename": "ap/09_overdue_purchase_invoices.json",
+    "description": "Overdue purchase invoices",
+    "group": "Purchase",
+    "notes": "Flat list: due_date < AsOfDate AND still outstanding (HasOutstanding filter-only field). Not aged into buckets \u2014 see #7."
+  },
+  {
+    "filename": "bank/10_bank_transactions_by_account.json",
+    "description": "Bank transactions by account",
+    "group": "Bank",
+    "notes": "Base-table join since bank_transaction has no dac_* equivalent documented in the master skill. Amount uses plain 'decimal' viewType (currency column on bank_transaction not confirmed) \u2014 verify against the live schema before relying on this one."
+  },
+  {
+    "filename": "gl/11_manual_journals_by_date.json",
+    "description": "Manual journals posted in a date range",
+    "group": "GL",
+    "notes": "doc_type.is_gl=1 identifies manual-journal-family documents per the master skill."
+  },
+  {
+    "filename": "gl/12_documents_by_user.json",
+    "description": "Documents created/last modified by user",
+    "group": "DocBase",
+    "notes": "CAUTION: dac_doc_base's own last_modified_by column wasn't confirmed anywhere in the master skill (only dac_gl's and account's were) \u2014 LastModifiedBy is stubbed to created_by here as a placeholder. Check INFORMATION_SCHEMA.COLUMNS on dac_doc_base before relying on this one; swap the Sql if a real column exists."
+  },
+  {
+    "filename": "budgets/13_budget_vs_actual.json",
+    "description": "Budget vs actual by cost centre",
+    "group": "GL",
+    "notes": "UNION ALL of budget2_value and dac_gl, both padded with a 0 Constant for the column the other side doesn't have so the two Selects output identical field lists (required \u2014 see master skill union rule). Amounts use plain 'decimal' viewType since there's no single shared currency field across the union. PeriodId is filter-only."
+  },
+  {
+    "filename": "sales/14_credit_notes_by_period.json",
+    "description": "Credit notes issued by period",
+    "group": "Sale",
+    "notes": "Flat list (no Summary fields) so DocDate can safely double as both filter and display column. doc_type.is_credit_note=1 filters to credit notes; mul_control applied for the correct sign."
+  }
+]
