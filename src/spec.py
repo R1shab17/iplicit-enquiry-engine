@@ -55,6 +55,27 @@ KNOWN_FILTERS = {
     "date range": "DateRange",
 }
 
+# Phrases that signal a request belongs to a module this pipeline doesn't
+# compile (compile_spec() only supports module="GL" — docs/ROADMAP.md item
+# 10). Recognized so nl_parser.py can say so plainly instead of silently
+# building an unrelated GL report and handing it over as if it answered the
+# request — see CLAUDE.md's "one rule that matters most": presenting a
+# guess as an answer is exactly what this repo doesn't do.
+OUT_OF_SCOPE_HINTS = {
+    "customer": "Customers/Sales",
+    "supplier": "Suppliers/Purchasing",
+    "debtor": "AR",
+    "creditor": "AP",
+    "invoice": "AR/AP",
+    "aged debt": "AR",
+    "aged credit": "AP",
+    "bank": "Bank",
+    "budget": "Budgets",
+    "purchase order": "Purchasing",
+    "sales order": "Sales",
+    "credit note": "Sales/AP",
+}
+
 
 @dataclass
 class EnquirySpec:

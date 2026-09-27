@@ -74,6 +74,27 @@ class TestParseGroupByAndPivot(unittest.TestCase):
         self.assertFalse(parse("balance by department").pivot_by_month)
 
 
+class TestOutOfScopeDetection(unittest.TestCase):
+    def test_aged_debtors_request_is_flagged_out_of_scope(self):
+        spec = parse("Show me aged debtors by customer")
+        self.assertNotEqual(spec.module, "GL")
+        self.assertTrue(any("not General Ledger" in n for n in spec.notes))
+
+    def test_bank_request_is_flagged_out_of_scope(self):
+        spec = parse("Bank transactions by account")
+        self.assertNotEqual(spec.module, "GL")
+
+    def test_out_of_scope_keyword_alongside_a_gl_dimension_still_compiles_as_gl(self):
+        # The dimension is the stronger signal — "for our biggest customer"
+        # tacked onto a real GL request shouldn't derail it.
+        spec = parse("GL balance by department for our biggest customer")
+        self.assertEqual(spec.module, "GL")
+
+    def test_plain_gl_request_is_not_flagged(self):
+        spec = parse("balance by department and cost centre")
+        self.assertEqual(spec.module, "GL")
+
+
 class TestParseNotes(unittest.TestCase):
     def test_thin_request_gets_a_note(self):
         spec = parse("give me a report")

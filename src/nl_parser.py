@@ -22,7 +22,7 @@ asking for. It has no connection to any actual NLP/ML model.
 """
 import re
 
-from spec import EnquirySpec, KNOWN_DIMENSIONS, KNOWN_MEASURES, KNOWN_FILTERS
+from spec import EnquirySpec, KNOWN_DIMENSIONS, KNOWN_MEASURES, KNOWN_FILTERS, OUT_OF_SCOPE_HINTS
 
 _MONTHLY_RE = re.compile(r"\bby month\b|\bmonthly\b|\bper month\b")
 
@@ -68,8 +68,24 @@ def parse(text: str) -> EnquirySpec:
                       "this spec is too thin to compile into a meaningful enquiry as-is; "
                       "treat this as a starting point, not a finished spec.")
 
+    # A request that names another module's subject (customers, suppliers,
+    # invoices, bank, budgets, ...) and doesn't also name a GL dimension is
+    # read as belonging to that module, not GL — set module accordingly so
+    # compile_spec() raises its NotImplementedError instead of this
+    # function silently handing back an unrelated GL report. A request that
+    # names both (e.g. "GL balance by department for our biggest customer")
+    # still compiles as GL — the dimension is the stronger, more specific
+    # signal here.
+    module = "GL"
+    if not dimensions:
+        hit = next((phrase for phrase in OUT_OF_SCOPE_HINTS if phrase in t), None)
+        if hit:
+            module = f"OTHER:{OUT_OF_SCOPE_HINTS[hit]}"
+            notes.append(f"Request looks like it's about {OUT_OF_SCOPE_HINTS[hit]}, not General Ledger — "
+                         "this pipeline only compiles GL requests (docs/ROADMAP.md item 10).")
+
     return EnquirySpec(
-        module="GL",  # the only module src/compiler.py currently supports
+        module=module,
         description=(text or "").strip() or "Compiled GL enquiry",
         dimensions=dimensions,
         measures=measures,

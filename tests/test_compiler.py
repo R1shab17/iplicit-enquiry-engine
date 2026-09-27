@@ -32,6 +32,11 @@ class TestCompileSpecScope(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             compile_spec(spec)
 
+    def test_out_of_scope_hint_from_parser_surfaces_in_error_message(self):
+        spec = EnquirySpec(module="OTHER:AR", description="Aged debtors by customer")
+        with self.assertRaisesRegex(NotImplementedError, "AR"):
+            compile_spec(spec)
+
 
 class TestCompileAndBuildValidatesClean(unittest.TestCase):
     def test_dimension_and_balance_measure_compiles_clean(self):

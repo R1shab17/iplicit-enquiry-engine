@@ -42,8 +42,9 @@ def compile_spec(spec: EnquirySpec):
     `warnings` includes spec.notes (the parser's own honesty trail) plus
     anything this function itself couldn't confirm against known schema."""
     if spec.module != "GL":
+        hint = spec.module.split(":", 1)[1] if spec.module.startswith("OTHER:") else spec.module
         raise NotImplementedError(
-            f"compiler.py only supports module='GL' right now (got {spec.module!r}) — "
+            f"compiler.py only supports module='GL' right now (got a request that looks like {hint!r}) — "
             "see docs/ROADMAP.md item 10. Write a build script by hand using src/enqgen.py "
             "the way src/build_library.py does for other modules."
         )

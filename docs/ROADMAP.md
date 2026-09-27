@@ -42,6 +42,7 @@ Priorities: **P0** = correctness/reliability, **P1** = major capability, **P2** 
     - `compiler.py` never fabricates a column: a measure like "debit"/"credit" that isn't a confirmed separate `dac_gl` column compiles to `Balance` instead, with an explicit warning — same honesty rule as every hand-written enquiry in this repo (`CLAUDE.md`'s "one rule that matters most").
     - Documents/AR/AP, unions, hierarchies, and table-valued-function sources are **not** supported — those still need a hand-written `src/enqgen.py` script, same as today. Widening module coverage is the natural next step once there's real demand for it, following the same "don't pad with unconfirmed guesses" discipline as item 9 above.
     - Every compiled output still goes through `enquiry_validator.py`/`enquiry_doctor.py` before being trusted — this pipeline doesn't get a pass on that step. See `tests/test_compiler.py`, which asserts every compiled example validates clean.
+    - A customer-facing front end now sits on top of this: `tools/enquiry_builder_app.py`, a stdlib-only local web app (describe a report, get the file back). It hides all validator/Python internals from the person using it, translates warnings into plain-English notes, and — when a request looks like it belongs to another module or fails validation — says so and points to support rather than handing over a wrong or unreliable file. See `tests/test_enquiry_builder_app.py`.
 
 ## P2 — developer experience
 

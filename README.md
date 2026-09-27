@@ -10,10 +10,11 @@ This exists because iplicit enquiries are a real but undocumented format: four J
 |---|---|
 | `docs/` | The reference material — schema, grammar, known and discovered failure modes, a project audit, a roadmap, and the two skill documents (`IPLICIT_ENQUIRY_MASTER_SKILL.md` full, `IPLICIT_ENQUIRY_QUICK_SKILL.md` condensed, meant to be pasted into a Claude Project's instructions). |
 | `src/` | The generator (`enqgen.py` + its `schema.py`/`joins.py`/`layouts.py`/`permissions.py` building blocks), a typed intermediate representation (`ir.py`), a parser that reads an export back into that IR (`enquiry_parser.py`), the structural + cross-reference + adversarial validator (`enquiry_validator.py`), a schema-confidence report (`confidence.py`), two CLI tools built on all of the above (`enquiry_doctor.py` one-file diagnostic report, `enquiry_diff.py` semantic comparison of two enquiries), and a narrow natural-language front end (`spec.py`/`nl_parser.py`/`compiler.py`, GL-grain enquiries only — see `docs/ROADMAP.md` item 10). |
-| `tests/` | 170 unit tests for every module above, fixtures (one clean, sixteen deliberately broken — one per known/discovered/adversarial failure mode), a mutation-testing harness that applies each of those same mutations to every real `generated/` enquiry, and regression tests for the real bugs this project has hit. |
+| `tests/` | 188 unit tests for every module above (including tools/enquiry_builder_app.py), fixtures (one clean, sixteen deliberately broken — one per known/discovered/adversarial failure mode), a mutation-testing harness that applies each of those same mutations to every real `generated/` enquiry, and regression tests for the real bugs this project has hit. |
 | `corpus/` | Where real enquiry SQL goes to keep improving this. `real_enquiries/` is empty on purpose — see below. `confirmed_patterns/` and `unknown_patterns/` track what's actually been verified against a live iplicit database versus what's inferred from documented conventions. |
 | `generated/` | Ready-to-import enquiry exports, one folder per iplicit module (`gl`, `ar`, `ap`, `sales`, `purchasing`, `bank`, `budgets`). |
 | `experiments/` | Scratch space for enquiries being drafted/tested — promote to `generated/` once validated. |
+| `tools/` | `enquiry_builder_app.py` — a customer-facing, stdlib-only local web app: describe a GL report in plain English, get back the ready-to-import file. A thin front end over `src/nl_parser.py`/`src/compiler.py`/`src/enquiry_validator.py`; adds no report-building logic of its own. |
 
 ## Quick start
 
@@ -33,7 +34,7 @@ python3 src/enquiry_doctor.py generated/bank/10_bank_transactions_by_account.jso
 # Semantic diff of two enquiries (field/join/param/layout/permission level, not textual)
 python3 src/enquiry_diff.py generated/ar/05_aged_debtors_by_customer.json generated/ap/07_aged_creditors_by_supplier.json
 
-# Run the test suite (170 tests)
+# Run the test suite (188 tests)
 python3 -m unittest discover -s tests -v
 ```
 
@@ -50,6 +51,15 @@ spec = parse("Show me GL balance by department and cost centre, monthly")
 env, model, warnings = compile_and_build(spec)   # still run this through enquiry_validator.py before trusting it
 print(warnings)  # what the parser/compiler couldn't confirm, if anything
 ```
+
+There's also a customer-facing web front end over the same pipeline — `tools/enquiry_builder_app.py`, stdlib-only, no install:
+
+```bash
+python3 tools/enquiry_builder_app.py
+# open http://localhost:8765 — type a request, click Generate, get back the file
+```
+
+It's deliberately a thin skin: it hides Python/validator internals from the person using it (no stack traces, no jargon), translates warnings into plain-English notes, and — if a request reads as belonging to a different module (AR/AP/sales/bank/budgets) or fails validation — says so plainly and points to support instead of handing over a guess. See its own docstring and `tests/test_enquiry_builder_app.py` for exactly what it does and doesn't do.
 
 ## The honesty policy
 
