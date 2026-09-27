@@ -211,4 +211,72 @@ env, model = build("Fixture: orphan PropMeta entry", "Test", query_xml(P, S), M,
 write("broken_orphan_propmeta.json", env)
 
 
+# ---------------------------------------------------------------- broken_duplicate_field_name.json
+# Deliberately bad: two Fields named "Description" in the same Select —
+# docs/DISCOVERED_FAILURE_MODES.md #4. Adversarial: not found in real
+# generated/ output, added by attacking enqgen.py's own output.
+P = []
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("Description", "description", "g"), fld("Description", "notes", "g")]}]
+M = {"Description": meta("Description", "Description")}
+L = [layout("Main", ["Description"])]
+env, model = build("Fixture: duplicate Field name in a Select", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_duplicate_field_name.json", env)
+
+
+# ---------------------------------------------------------------- broken_duplicate_source_name.json
+# Deliberately bad: two Sources both named "g" in the same Select —
+# docs/DISCOVERED_FAILURE_MODES.md #5.
+P = []
+S = [{"name": "Main", "sources": [
+        src("g", "[dbo].[dac_gl]", "View"),
+        src("g", "[dbo].[account]", join="InnerJoin", on="[g].[id] = [g].[account_id]"),
+     ], "fields": [fld("Description", "description", "g")]}]
+M = {"Description": meta("Description", "Description")}
+L = [layout("Main", ["Description"])]
+env, model = build("Fixture: duplicate Source name in a Select", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_duplicate_source_name.json", env)
+
+
+# ---------------------------------------------------------------- broken_duplicate_param_name.json
+# Deliberately bad: LegalEntityId declared twice — docs/DISCOVERED_FAILURE_MODES.md #6.
+P = [param("LegalEntityId", "Legal entity"), param("LegalEntityId", "Legal entity (duplicate)")]
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("LegalEntityId", "legal_entity_id", "g", op="In", arg="@LegalEntityId",
+                      orr="@LegalEntityId is null", output=False),
+                 fld("Description", "description", "g")]}]
+M = {"Description": meta("Description", "Description")}
+L = [layout("Main", ["Description"])]
+env, model = build("Fixture: duplicate declared Param name", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_duplicate_param_name.json", env)
+
+
+# ---------------------------------------------------------------- broken_permission_guid_format.json
+# Deliberately bad: a RequiredPermissions entry that isn't GUID-shaped —
+# docs/DISCOVERED_FAILURE_MODES.md #7.
+P, S, M, L = _base()
+env, model = build("Fixture: malformed permission GUID", "Test", query_xml(P, S), M, L,
+                    permissions=["not-a-real-guid"])
+write("broken_permission_guid_format.json", env)
+
+
+# ---------------------------------------------------------------- broken_hierarchy_no_grouprows.json
+# Deliberately bad: a saved hierarchy with zero groupRows — every confirmed
+# hierarchy layout in this repo (generated/gl/04_pl_by_month.json) pairs the
+# tree with exactly one groupRows entry — docs/DISCOVERED_FAILURE_MODES.md #8.
+P = []
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("AccountId", "account_id", "g"), fld("Total", "SUM([g].[amount])", type="Summary")]}]
+M = {"AccountId": meta("AccountId", "Account"), "Total": m_decimal("Total", "Total")}
+L = [layout("Balance sheet", ["AccountId", "Total"],
+            extra={"hierarchy": {"treeId": "00000000-0000-0000-0000-000000000000",
+                                  "name": "Standard Balance Sheet tree", "other": "Other"}})]
+env, model = build("Fixture: hierarchy with no groupRows at all", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.BalanceSheet"]])
+write("broken_hierarchy_no_grouprows.json", env)
+
+
 print("Wrote fixtures to", HERE)

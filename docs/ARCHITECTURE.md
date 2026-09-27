@@ -29,11 +29,16 @@ DbEnquiry export JSON  (base64 envelope)
 src/enquiry_parser.py   ── decodes the envelope into src/ir.py's typed
         │                  Enquiry/Select/Source/Field/Param/Layout dataclasses
         ▼
-src/enquiry_validator.py   ── runs two check layers against that IR:
-        │                     structural (docs/FAILURE_MODES.md) and
-        │                     cross-reference (docs/DISCOVERED_FAILURE_MODES.md —
-        │                     does every Source/Param/layout-field/PropMeta
-        │                     name actually resolve to something declared)
+src/enquiry_validator.py   ── runs three check layers against that IR:
+        │                     structural (docs/FAILURE_MODES.md), cross-
+        │                     reference (docs/DISCOVERED_FAILURE_MODES.md
+        │                     #1-3 — does every Source/Param/layout-field/
+        │                     PropMeta name actually resolve to something
+        │                     declared), and adversarial (ibid. #4-8 —
+        │                     duplicate Field/Source/Param names, malformed
+        │                     permission GUIDs, an under-specified
+        │                     hierarchy rule — added by attacking enqgen.py's
+        │                     own output rather than a bug already seen)
         ▼
 generated/<module>/*.json   (only if it passes)
         │
@@ -54,7 +59,7 @@ Enquiries ▸ ⋮ ▸ Import from clipboard ▸ Apply ▸ (tick analytic group) 
 
 ## Why the validator can't be the whole story
 
-`enquiry_validator.py` checks the *shape* of an enquiry — both the structural layer (does every optional filter tolerate an empty parameter, is there a permission, does an amount column's currency member actually resolve, does a hierarchy conflict with its row grouping) and, since the engine-hardening pass, a cross-reference layer (does every Field's Source, every filter's `@Param`, every layout field reference, and every PropMeta entry actually name something declared elsewhere in the same enquiry). All of that is derivable from the JSON alone. What it cannot check is whether `[dbo].[bank_transaction]` actually has a `currency` column, or whether `dac_doc_base` has its own `last_modified_by` — that requires a live database. `src/confidence.py` tracks which tables an enquiry depends on are confirmed vs. inferred (surfaced via `enquiry_doctor.py`), but "inferred" is a flag on an assumption, not a substitute for checking it. The repo is explicit (in `generated/INDEX.md`, `docs/SCHEMA.md`, and `corpus/unknown_patterns/`) about which enquiries carry that kind of unconfirmed assumption. See `docs/PROJECT_AUDIT.md` §0 for what this project currently does and does not have evidence for.
+`enquiry_validator.py` checks the *shape* of an enquiry — the structural layer (does every optional filter tolerate an empty parameter, is there a permission, does an amount column's currency member actually resolve, does a hierarchy conflict with its row grouping), the cross-reference layer added in the engine-hardening pass (does every Field's Source, every filter's `@Param`, every layout field reference, and every PropMeta entry actually name something declared elsewhere in the same enquiry), and the adversarial layer added in the pass after that (are those same names actually *unique* within their scope, and is a permission id actually GUID-shaped) — none of it found by trial and error, all of it found by treating the generator's own output as an attack surface. All of that is derivable from the JSON alone. What it cannot check is whether `[dbo].[bank_transaction]` actually has a `currency` column, or whether `dac_doc_base` has its own `last_modified_by` — that requires a live database. `src/confidence.py` tracks which tables an enquiry depends on are confirmed vs. inferred (surfaced via `enquiry_doctor.py`), but "inferred" is a flag on an assumption, not a substitute for checking it. The repo is explicit (in `generated/INDEX.md`, `docs/SCHEMA.md`, and `corpus/unknown_patterns/`) about which enquiries carry that kind of unconfirmed assumption. See `docs/PROJECT_AUDIT.md` §0 for what this project currently does and does not have evidence for.
 
 ## Design choices worth knowing about
 

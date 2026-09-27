@@ -17,13 +17,18 @@ This repo generates iplicit ERP enquiries (custom reports). Read this before mak
 
 ## Known failure modes — check `docs/FAILURE_MODES.md` and `docs/DISCOVERED_FAILURE_MODES.md` before debugging from scratch
 
-Costliest mistakes so far. The first two were found by trial and error against a live sandbox; the next three were found by building `src/ir.py`'s cross-reference checks and running them against this repo's own `generated/` output — and are now permanent, zero-cost validator checks even though the corpus is currently clean:
+Costliest mistakes so far. #1-#2 were found by trial and error against a live sandbox; #3-#5 were found by building `src/ir.py`'s cross-reference checks and running them against this repo's own `generated/` output; #6-#10 were added by a later, deliberately *adversarial* pass attacking `enqgen.py`'s own output (no observed bug behind them — see each one's provenance in `docs/DISCOVERED_FAILURE_MODES.md`). All are now permanent, zero-cost validator checks even though the corpus is currently clean:
 
 1. A saved row `hierarchy` (a chart-of-accounts/BS/PL tree) combined with a multi-level `groupRows` returns **no data**, with no error. Don't combine them unless the extra level is genuinely nested inside that tree.
 2. `dac_gl.last_modified_by` is the GL posting's audit stamp; `account.last_modified_by` is the chart-of-accounts record's. They are not interchangeable — ask which one is meant if a request says "last modified" without saying which entity.
 3. A declared `<Param>` that no filter/Source/Binding ever uses renders as a picker that silently does nothing — usually because the natural filter column turned out to be unconfirmed and got dropped without removing the parameter too. Remove the parameter, don't leave it dangling.
 4. A cascading `<Binding Name="X">` must name another declared `<Param>`, not the semantic `PropertyName` a catalog function expects — easy to transpose when the two happen to look similar.
 5. A `Field`'s `Source` must name a `<Source>` actually declared in that same `<Select>`, or the compiled SQL references an undefined alias.
+6. Two `<Field>`s in the same `<Select>` sharing a `Name` compile to two identically-aliased output columns — always rename a copy-pasted field.
+7. Two `<Source>`s in the same `<Select>` sharing a `Name` alias the same JOIN twice — keep alias conventions (`docs/SCHEMA.md`) unique per Select.
+8. Two `<Param>`s sharing a `Name` render as duplicate pickers with unpredictable which-one-wins behaviour — check for collisions when merging parameter lists from more than one snippet.
+9. A `RequiredPermissions` entry must be a real GUID — always pull it from `src/permissions.py`'s `PERM` table rather than writing one by hand.
+10. A saved `hierarchy` needs *exactly one* `groupRows` level, not merely "not more than one" — zero levels leaves the tree with nothing to bucket rows by (`generated/gl/04_pl_by_month.json` is the one confirmed-working example, and it always has exactly one).
 
 ## Testing
 

@@ -31,6 +31,23 @@ _PARAM_TOKEN_RE = re.compile(r"@(\w+)")
 _BINDING_NAME_RE = re.compile(r'<Binding\s+Name="([^"]+)"')
 
 
+def _find_duplicates(names) -> list:
+    """Names that appear more than once in `names`, in first-seen order,
+    each reported exactly once. Used by the adversarial duplicate-name
+    checks added in the hardening pass (docs/DISCOVERED_FAILURE_MODES.md
+    #4-6) — a duplicate Field/Source/Param name is well-formed XML that the
+    iplicit builder cannot disambiguate."""
+    seen = set()
+    dupes = []
+    for n in names:
+        if n is None:
+            continue
+        if n in seen and n not in dupes:
+            dupes.append(n)
+        seen.add(n)
+    return dupes
+
+
 @dataclass(frozen=True)
 class Param:
     name: str
@@ -166,6 +183,17 @@ class Select:
         declared = self.source_names()
         return [(f.name, f.source) for f in self.fields if f.source and f.source not in declared]
 
+    def duplicate_source_names(self) -> list:
+        """Source names declared more than once in this Select — any Field
+        pointing at that alias is ambiguous about which JOIN it means."""
+        return _find_duplicates(s.name for s in self.sources)
+
+    def duplicate_field_names(self) -> list:
+        """Field names declared more than once in this Select — PropMetaJson
+        and layout references to that name can't tell which Field they mean,
+        and the compiled SELECT list would alias two columns identically."""
+        return _find_duplicates(f.name for f in self.fields)
+
 
 @dataclass(frozen=True)
 class Layout:
@@ -281,6 +309,12 @@ class Enquiry:
     def undeclared_param_references(self) -> set:
         """@Param tokens used in a filter but never declared as a <Param>."""
         return self.referenced_param_names() - self.declared_param_names()
+
+    def duplicate_param_names(self) -> list:
+        """Param names declared more than once — the parameter panel would
+        show two identical pickers with unpredictable which-one-wins
+        behaviour for filters/Bindings that reference the shared name."""
+        return _find_duplicates(p.name for p in self.params)
 
     def first_select_output_fields(self) -> list:
         return self.selects[0].output_field_names() if self.selects else []

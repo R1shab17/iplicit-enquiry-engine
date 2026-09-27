@@ -13,6 +13,7 @@ skip files where the mutation doesn't apply — e.g. you can't strip a
 union's field-name parity from an enquiry with no union).
 """
 import base64
+import copy
 import glob
 import json
 import os
@@ -150,6 +151,72 @@ def reintroduce_hierarchy_grouprows_conflict(model):
     return False
 
 
+def duplicate_a_field_name(model):
+    """Adversarial: no real enquiry does this, but enqgen.py's fld()/
+    query_xml() don't stop you from declaring two Fields with the same
+    Name in one Select — see docs/DISCOVERED_FAILURE_MODES.md #4."""
+    root = ET.fromstring(model["QueryXml"])
+    for sel in root.findall("Select"):
+        fields = sel.findall("Field")
+        if fields:
+            dup = copy.deepcopy(fields[0])
+            sel.insert(list(sel).index(fields[0]) + 1, dup)
+            model["QueryXml"] = ET.tostring(root, encoding="unicode")
+            return True
+    return False
+
+
+def duplicate_a_source_name(model):
+    """Adversarial — docs/DISCOVERED_FAILURE_MODES.md #5."""
+    root = ET.fromstring(model["QueryXml"])
+    for sel in root.findall("Select"):
+        sources = sel.findall("Source")
+        if sources:
+            dup = copy.deepcopy(sources[0])
+            sel.insert(list(sel).index(sources[0]) + 1, dup)
+            model["QueryXml"] = ET.tostring(root, encoding="unicode")
+            return True
+    return False
+
+
+def duplicate_a_param_name(model):
+    """Adversarial — docs/DISCOVERED_FAILURE_MODES.md #6."""
+    root = ET.fromstring(model["QueryXml"])
+    params = root.findall("Param")
+    if not params:
+        return False
+    dup = copy.deepcopy(params[0])
+    root.insert(list(root).index(params[0]) + 1, dup)
+    model["QueryXml"] = ET.tostring(root, encoding="unicode")
+    return True
+
+
+def corrupt_a_permission_guid(model):
+    """Adversarial — docs/DISCOVERED_FAILURE_MODES.md #7."""
+    perms = model.get("RequiredPermissions")
+    if not perms:
+        return False
+    perms[0]["AttributeOperationId"] = "not-a-real-guid"
+    return True
+
+
+def strip_grouprows_from_a_hierarchy_layout(model):
+    """Adversarial — docs/DISCOVERED_FAILURE_MODES.md #8. Only applies to
+    generated/gl/04_pl_by_month.json, the one enquiry with a hierarchy."""
+    changed = False
+    for entry in model.get("EnquiryLayouts", []):
+        try:
+            cd = json.loads(entry["ContainerDefinition"])
+        except Exception:
+            continue
+        grid = cd.get("layout", {}).get("grid", {})
+        if grid.get("hierarchy") and grid.get("groupRows"):
+            grid["groupRows"] = []
+            entry["ContainerDefinition"] = json.dumps({"layout": {"grid": grid}})
+            changed = True
+    return changed
+
+
 def strip_currency_member_from_includes(model):
     try:
         meta = json.loads(model["PropMetaJson"])
@@ -239,6 +306,24 @@ class TestMutations(MutationTestCase):
 
     def test_stripping_currency_member_from_includes_is_caught(self):
         self.run_mutation(strip_currency_member_from_includes, "needing currencyMember")
+
+    def test_duplicating_a_field_name_is_caught(self):
+        n = self.run_mutation(duplicate_a_field_name, "is declared more than once")
+        self.assertEqual(n, len(GENERATED_FILES), "every real enquiry has at least one Field")
+
+    def test_duplicating_a_source_name_is_caught(self):
+        n = self.run_mutation(duplicate_a_source_name, "is declared more than once")
+        self.assertEqual(n, len(GENERATED_FILES), "every real enquiry has at least one Source")
+
+    def test_duplicating_a_param_name_is_caught(self):
+        self.run_mutation(duplicate_a_param_name, "is declared more than once")
+
+    def test_corrupting_a_permission_guid_is_caught(self):
+        n = self.run_mutation(corrupt_a_permission_guid, "doesn't look like a GUID")
+        self.assertEqual(n, len(GENERATED_FILES), "every real enquiry declares at least one permission")
+
+    def test_stripping_grouprows_from_a_hierarchy_layout_is_caught(self):
+        self.run_mutation(strip_grouprows_from_a_hierarchy_layout, "no groupRows at all")
 
 
 if __name__ == "__main__":

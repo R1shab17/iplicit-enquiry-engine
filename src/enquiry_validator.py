@@ -27,6 +27,16 @@ docs/DISCOVERED_FAILURE_MODES.md):
  - every layout column/groupRows/groupColumns/groupData/includes/detail
    field names a field the query actually outputs
  - every PropMetaJson entry names a field the query actually outputs
+ - no Select declares the same Source name or Field name twice, and no
+   enquiry declares the same Param name twice (adversarial pass — see
+   docs/DISCOVERED_FAILURE_MODES.md #4-6; not observed live, kept as a
+   permanent check per operating principle #6)
+
+Adversarial (added attacking enqgen.py's own output rather than from a
+discovered live bug — docs/DISCOVERED_FAILURE_MODES.md #7-8):
+ - hierarchy requires exactly one groupRows level, not merely "not more
+   than one" — zero groupRows leaves the tree with nothing to bucket
+ - every RequiredPermissions entry is GUID-shaped
 
 This validator checks *shape*, not your live schema — it cannot confirm a
 column or table actually exists. See CLAUDE.md's "one rule that matters most".
@@ -36,6 +46,9 @@ import re
 
 from enquiry_parser import parse, ParseError, output_field_names, principal_source
 from schema import is_unsafe_principal
+
+
+_GUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 def warn(msgs, msg):
@@ -92,10 +105,23 @@ def check_layouts(layouts, prop_meta, msgs):
         grid = entry["grid"]
         group_rows = grid.get("groupRows") or []
         hierarchy = grid.get("hierarchy")
-        if hierarchy and len(group_rows) > 1:
-            warn(msgs, f"Layout '{desc}': combines a saved hierarchy ({hierarchy.get('name')}) "
-                       f"with a multi-level groupRows {group_rows} — known to return no data unless "
-                       "the extra level truly is nested inside that tree")
+        if hierarchy:
+            n = len(group_rows)
+            if n > 1:
+                # Confirmed-live: docs/FAILURE_MODES.md #1.
+                warn(msgs, f"Layout '{desc}': combines a saved hierarchy ({hierarchy.get('name')}) "
+                           f"with a multi-level groupRows {group_rows} — known to return no data unless "
+                           "the extra level truly is nested inside that tree")
+            elif n == 0:
+                # Logically derived, not live-confirmed: every hierarchy
+                # layout actually built in this repo (generated/gl/
+                # 04_pl_by_month.json) pairs the tree with exactly one
+                # groupRows entry naming the field whose values map onto
+                # tree nodes — see docs/DISCOVERED_FAILURE_MODES.md #8.
+                warn(msgs, f"Layout '{desc}': combines a saved hierarchy ({hierarchy.get('name')}) "
+                           "with no groupRows at all — a hierarchy needs exactly one groupRows entry "
+                           "naming the field whose values map onto tree nodes (see "
+                           "generated/gl/04_pl_by_month.json for the confirmed-working pattern)")
 
         includes = set(grid.get("includes") or [])
         detail_includes = set((grid.get("detail") or {}).get("includes") or [])
@@ -114,6 +140,21 @@ def check_layouts(layouts, prop_meta, msgs):
 def check_permissions(permissions, msgs):
     if not permissions:
         warn(msgs, "RequiredPermissions is empty — the Create button will stay disabled in the UI with no visible error")
+
+
+def check_permission_guid_format(permissions, msgs):
+    """Every RequiredPermissions entry (AttributeOperationId) should be a
+    GUID. Adversarial check — attacking enqgen.py's own output rather than
+    a bug found live; no generated/ enquiry currently fails it (they all
+    come from src/permissions.py's PERM table), but src/enqgen.py's build()
+    happily accepts and lowercases any string, so a typo'd permission id
+    passed by hand would otherwise ship silently. See
+    docs/DISCOVERED_FAILURE_MODES.md #7."""
+    for pid in permissions:
+        if not pid or not _GUID_RE.match(pid):
+            warn(msgs, f"RequiredPermissions entry {pid!r} doesn't look like a GUID "
+                       "(AttributeOperationId) — likely a typo'd or hand-written permission id; "
+                       "use src/permissions.py's PERM table instead of a literal string")
 
 
 def check_source_references(ir, msgs):
@@ -161,20 +202,41 @@ def check_orphan_prop_meta(ir, msgs):
                    f"fields (dead metadata — harmless, but likely stale)")
 
 
+def check_duplicate_names(ir, msgs):
+    """No Select should declare the same Source name or Field name twice,
+    and no enquiry should declare the same Param name twice — all three are
+    well-formed XML/JSON that the iplicit builder cannot disambiguate.
+    Adversarial: not observed in this repo's own (clean) generated/ output,
+    added by attacking enqgen.py's own output rather than from a discovered
+    live bug — see docs/DISCOVERED_FAILURE_MODES.md #4-6."""
+    for si, sel in enumerate(ir.selects):
+        for name in sel.duplicate_source_names():
+            warn(msgs, f"Select[{si}]: Source name '{name}' is declared more than once — "
+                       "any Field referencing it is ambiguous about which JOIN it means")
+        for name in sel.duplicate_field_names():
+            warn(msgs, f"Select[{si}]: Field name '{name}' is declared more than once — "
+                       "PropMetaJson/layout references to it are ambiguous about which one they mean")
+    for name in ir.duplicate_param_names():
+        warn(msgs, f"Param '{name}' is declared more than once — the parameter panel would show "
+                   "duplicate pickers with unpredictable which-one-wins behaviour")
+
+
 def check_cross_references(ir, msgs):
-    """All four IR-based cross-reference checks together — the checks that
-    need src/ir.py rather than raw XML/JSON: do the names different parts
-    of the enquiry use to refer to each other actually resolve? None of
-    this needs live-schema knowledge — it's pure internal consistency, and
-    it already caught three real bugs in this repo's own generated/ output
-    (a dangling Binding reference and two dead parameters) — see
-    docs/DISCOVERED_FAILURE_MODES.md. Split into the four functions above
-    so tooling (src/enquiry_doctor.py) can report them under separate
-    headings; validate_file() below still runs all four as one pass."""
+    """All five IR-based cross-reference/adversarial checks together — the
+    checks that need src/ir.py rather than raw XML/JSON: do the names
+    different parts of the enquiry use to refer to each other actually
+    resolve, and are they unique? None of this needs live-schema knowledge
+    — it's pure internal consistency, and the first four already caught
+    three real bugs in this repo's own generated/ output (a dangling
+    Binding reference and two dead parameters) — see
+    docs/DISCOVERED_FAILURE_MODES.md. Split into the functions above so
+    tooling (src/enquiry_doctor.py) can report them under separate
+    headings; validate_file() below still runs all of them as one pass."""
     check_source_references(ir, msgs)
     check_param_references(ir, msgs)
     check_layout_field_references(ir, msgs)
     check_orphan_prop_meta(ir, msgs)
+    check_duplicate_names(ir, msgs)
 
 
 def validate_file(path):
@@ -195,6 +257,7 @@ def validate_file(path):
     check_prop_meta(parsed["selects"], parsed["prop_meta"], msgs)
     check_layouts(parsed["layouts"], parsed["prop_meta"], msgs)
     check_permissions(parsed["permissions"], msgs)
+    check_permission_guid_format(parsed["permissions"], msgs)
     check_cross_references(parsed["ir"], msgs)
     return msgs
 

@@ -120,6 +120,24 @@ class TestSelect(unittest.TestCase):
             [self._el({"Name": "A", "Source": "r", "FilterArgument": "@Y"})]))
         self.assertEqual(sel.referenced_param_names(), {"X", "Y"})
 
+    def test_duplicate_source_names(self):
+        sel = Select.from_parsed(self._select(
+            [self._el({"Name": "g"}), self._el({"Name": "g"})], []))
+        self.assertEqual(sel.duplicate_source_names(), ["g"])
+
+    def test_duplicate_field_names(self):
+        sel = Select.from_parsed(self._select(
+            [self._el({"Name": "g"})],
+            [self._el({"Name": "A", "Source": "g"}), self._el({"Name": "A", "Source": "g"})]))
+        self.assertEqual(sel.duplicate_field_names(), ["A"])
+
+    def test_no_duplicates_when_all_unique(self):
+        sel = Select.from_parsed(self._select(
+            [self._el({"Name": "g"}), self._el({"Name": "a"})],
+            [self._el({"Name": "A", "Source": "g"}), self._el({"Name": "B", "Source": "a"})]))
+        self.assertEqual(sel.duplicate_source_names(), [])
+        self.assertEqual(sel.duplicate_field_names(), [])
+
 
 class TestLayout(unittest.TestCase):
     def test_accepts_plain_string_group_rows(self):
@@ -209,6 +227,16 @@ class TestEnquiry(unittest.TestCase):
                                self._el({"Name": "B", "Source": "g", "Output": "False"})]}]
         ir = Enquiry.from_parsed(self._parsed([], selects))
         self.assertEqual(ir.first_select_output_fields(), ["A"])
+
+    def test_duplicate_param_names(self):
+        params = [{"Name": "LegalEntityId"}, {"Name": "LegalEntityId"}]
+        ir = Enquiry.from_parsed(self._parsed(params, []))
+        self.assertEqual(ir.duplicate_param_names(), ["LegalEntityId"])
+
+    def test_no_duplicate_param_names(self):
+        params = [{"Name": "LegalEntityId"}, {"Name": "PeriodId"}]
+        ir = Enquiry.from_parsed(self._parsed(params, []))
+        self.assertEqual(ir.duplicate_param_names(), [])
 
 
 if __name__ == "__main__":

@@ -72,6 +72,29 @@ class TestValidatorAgainstFixtures(unittest.TestCase):
         issues = validate_file(fixture("broken_orphan_propmeta.json"))
         self.assertTrue(any("dead metadata" in m for m in issues))
 
+    # -- adversarial checks (attacking enqgen.py's own output rather than
+    # from a discovered live bug) — see docs/DISCOVERED_FAILURE_MODES.md #4-8.
+
+    def test_duplicate_field_name_is_flagged(self):
+        issues = validate_file(fixture("broken_duplicate_field_name.json"))
+        self.assertTrue(any("Field name 'Description' is declared more than once" in m for m in issues))
+
+    def test_duplicate_source_name_is_flagged(self):
+        issues = validate_file(fixture("broken_duplicate_source_name.json"))
+        self.assertTrue(any("Source name 'g' is declared more than once" in m for m in issues))
+
+    def test_duplicate_param_name_is_flagged(self):
+        issues = validate_file(fixture("broken_duplicate_param_name.json"))
+        self.assertTrue(any(m.startswith("Param 'LegalEntityId' is declared more than once") for m in issues))
+
+    def test_malformed_permission_guid_is_flagged(self):
+        issues = validate_file(fixture("broken_permission_guid_format.json"))
+        self.assertTrue(any("doesn't look like a GUID" in m for m in issues))
+
+    def test_hierarchy_with_no_grouprows_is_flagged(self):
+        issues = validate_file(fixture("broken_hierarchy_no_grouprows.json"))
+        self.assertTrue(any("combines a saved hierarchy" in m and "no groupRows at all" in m for m in issues))
+
 
 class TestValidatorHelpers(unittest.TestCase):
     def test_between_without_isnull_is_flagged(self):

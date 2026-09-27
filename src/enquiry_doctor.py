@@ -24,8 +24,8 @@ import sys
 from enquiry_parser import parse, ParseError
 from enquiry_validator import (
     check_query_xml, check_prop_meta, check_layouts, check_permissions,
-    check_source_references, check_param_references,
-    check_layout_field_references, check_orphan_prop_meta,
+    check_permission_guid_format, check_source_references, check_param_references,
+    check_layout_field_references, check_orphan_prop_meta, check_duplicate_names,
 )
 from confidence import assess_enquiry, format_report
 
@@ -71,6 +71,19 @@ def diagnose(path):
     # messages already routed above.
     check_param_references(ir, sections["PARAMETERS"])
 
+    # Duplicate-name checks (adversarial) span three sections; route by
+    # content rather than restructure check_duplicate_names' signature,
+    # same approach as check_query_xml's PARAMETERS/STRUCTURE split above.
+    dup_msgs = []
+    check_duplicate_names(ir, dup_msgs)
+    for m in dup_msgs:
+        if m.startswith("Param '"):
+            sections["PARAMETERS"].append(m)
+        elif "Source name" in m:
+            sections["JOINS"].append(m)
+        else:
+            sections["STRUCTURE"].append(m)
+
     # METADATA: PropMeta coverage both ways (missing + orphaned).
     check_prop_meta(parsed["selects"], parsed["prop_meta"], sections["METADATA"])
     check_orphan_prop_meta(ir, sections["METADATA"])
@@ -82,6 +95,7 @@ def diagnose(path):
 
     # PERMISSIONS
     check_permissions(parsed["permissions"], sections["PERMISSIONS"])
+    check_permission_guid_format(parsed["permissions"], sections["PERMISSIONS"])
 
     confidence = assess_enquiry(ir)
 

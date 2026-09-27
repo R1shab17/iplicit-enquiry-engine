@@ -58,6 +58,31 @@ class TestDiagnose(unittest.TestCase):
         self.assertEqual(d["status"], "FAIL")
         self.assertIsNotNone(d["parse_error"])
 
+    def test_duplicate_field_name_lands_in_structure_section(self):
+        d = diagnose(os.path.join(FIXTURES, "broken_duplicate_field_name.json"))
+        self.assertEqual(d["status"], "FAIL")
+        self.assertTrue(d["sections"]["STRUCTURE"])
+
+    def test_duplicate_source_name_lands_in_joins_section(self):
+        d = diagnose(os.path.join(FIXTURES, "broken_duplicate_source_name.json"))
+        self.assertEqual(d["status"], "FAIL")
+        self.assertTrue(d["sections"]["JOINS"])
+
+    def test_duplicate_param_name_lands_in_parameters_section(self):
+        d = diagnose(os.path.join(FIXTURES, "broken_duplicate_param_name.json"))
+        self.assertEqual(d["status"], "FAIL")
+        self.assertTrue(d["sections"]["PARAMETERS"])
+
+    def test_malformed_permission_guid_lands_in_permissions_section(self):
+        d = diagnose(os.path.join(FIXTURES, "broken_permission_guid_format.json"))
+        self.assertEqual(d["status"], "FAIL")
+        self.assertTrue(d["sections"]["PERMISSIONS"])
+
+    def test_hierarchy_no_grouprows_lands_in_layout_section(self):
+        d = diagnose(os.path.join(FIXTURES, "broken_hierarchy_no_grouprows.json"))
+        self.assertEqual(d["status"], "FAIL")
+        self.assertTrue(d["sections"]["LAYOUT"])
+
     def test_every_generated_enquiry_is_pass_or_warn_never_fail(self):
         import glob
         for path in sorted(glob.glob(os.path.join(GENERATED, "*", "*.json"))):

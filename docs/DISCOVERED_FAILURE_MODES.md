@@ -8,9 +8,21 @@ file, extended with provenance since operating principle #1
 (`docs/PROJECT_AUDIT.md`) requires it: symptom, minimal reproduction,
 likely cause, evidence, detection rule, prevention rule, regression test.
 
-All three of these were real bugs sitting in this repo's own `generated/`
-output before this pass — not hypothetical. See the `engine-hardening`
-branch's commit fixing `src/build_library.py` for the exact diffs.
+Modes #1-#3 were real bugs sitting in this repo's own `generated/` output
+before the engine-hardening pass — not hypothetical. See that branch's
+commit fixing `src/build_library.py` for the exact diffs.
+
+Modes #4-#8 were added in a later, deliberately **adversarial** pass
+(attacking `enqgen.py`'s own output — duplicate names, malformed
+permission ids, an under-specified hierarchy rule — rather than starting
+from a bug already observed live or in this repo's own output). None of
+them currently has a real hit in `generated/*/*.json` (all 14 files stay
+clean), except #8, which — while still not *live*-confirmed — is grounded
+in this repo's own only real hierarchy example rather than pure
+speculation. Each is still a permanent, zero-cost check per operating
+principle #6 ("actively search for counterexamples") and each is proven to
+actually fire via `tests/test_mutations.py`, which mutates the real
+`generated/` corpus rather than a synthetic fixture alone.
 
 ## 1. A declared `<Param>` that no filter, Source, or Binding ever uses
 
@@ -134,6 +146,174 @@ alias list, not the alias convention of the enquiry it was copied from.
 `tests/test_validator.py::test_dangling_source_reference_is_flagged`
 (fixture: `tests/fixtures/broken_dangling_source.json`);
 `tests/test_ir.py::TestSelect::test_dangling_source_references`.
+
+## 4. A duplicate `<Field Name="...">` within one `<Select>`
+
+**Symptom:** untested against a live tenant. **Logically derived, not
+live-confirmed.** The builder compiles each output Field into a `SELECT
+[Name] = <source>.<sql>` list item; two Fields sharing a `Name` would
+produce two columns aliased identically, and any PropMetaJson/layout
+reference to that name becomes ambiguous about which one it means.
+
+**Minimal reproduction:** two `<Field Name="Description" .../>` elements in
+the same `<Select>`.
+
+**Likely cause:** copy-pasting a field block within the same Select and
+forgetting to rename it — easy to miss since XML with a repeated attribute
+value is still well-formed.
+
+**Evidence:** not found in any of this repo's 14 real `generated/*/*.json`
+files (`tests/test_mutations.py::test_duplicating_a_field_name_is_caught`
+confirms all 14 currently have unique Field names per Select). Added
+adversarially — attacking `enqgen.py`'s own output rather than from a
+discovered live bug — per operating principle #6.
+
+**Detection rule:** `Select.duplicate_field_names()` (`src/ir.py`).
+
+**Prevention rule:** when copying a Field definition within the same
+Select, always give the copy a distinct `Name`.
+
+**Regression test:**
+`tests/test_validator.py::test_duplicate_field_name_is_flagged` (fixture:
+`tests/fixtures/broken_duplicate_field_name.json`);
+`tests/test_ir.py::TestSelect::test_duplicate_field_names`;
+`tests/test_mutations.py::test_duplicating_a_field_name_is_caught`.
+
+## 5. A duplicate `<Source Name="...">` within one `<Select>`
+
+**Symptom:** untested against a live tenant. **Logically derived, not
+live-confirmed.** Two Sources sharing an alias in the same Select would
+compile to two `JOIN`s aliased identically — invalid SQL, or at best a SQL
+engine silently picking one.
+
+**Minimal reproduction:** `<Source Name="g" Sql="[dbo].[dac_gl]" .../>` and
+a second `<Source Name="g" Sql="[dbo].[account]" .../>` in the same Select.
+
+**Likely cause:** copying a join block from another enquiry that happens to
+reuse the same short alias convention (`g`, `a`, `db`) without checking it's
+not already taken in this Select.
+
+**Evidence:** not found in any real `generated/*/*.json` file — see
+`tests/test_mutations.py::test_duplicating_a_source_name_is_caught`. Added
+adversarially, same rationale as #4.
+
+**Detection rule:** `Select.duplicate_source_names()` (`src/ir.py`).
+
+**Prevention rule:** keep alias conventions (`g`=dac_gl, `a`=account,
+`db`=dac_doc_base, etc. — `docs/SCHEMA.md`) unique within a single Select;
+if a second source of the same kind is genuinely needed, alias it distinctly
+(`a2`, `db2`, ...).
+
+**Regression test:**
+`tests/test_validator.py::test_duplicate_source_name_is_flagged` (fixture:
+`tests/fixtures/broken_duplicate_source_name.json`);
+`tests/test_ir.py::TestSelect::test_duplicate_source_names`;
+`tests/test_mutations.py::test_duplicating_a_source_name_is_caught`.
+
+## 6. A duplicate `<Param Name="...">` across the whole enquiry
+
+**Symptom:** untested against a live tenant. **Logically derived, not
+live-confirmed.** Two Params sharing a name would show as two identical
+pickers in the parameter panel, with unpredictable which-one-wins behaviour
+for any filter or Binding that references the shared name.
+
+**Minimal reproduction:** two `<Param Name="LegalEntityId" .../>` elements
+in the same `<Query>`.
+
+**Likely cause:** merging parameter lists from two build-script snippets
+(e.g. combining a "standard filters" template with module-specific params)
+without checking for an existing declaration of the same name.
+
+**Evidence:** not found in any real `generated/*/*.json` file — see
+`tests/test_mutations.py::test_duplicating_a_param_name_is_caught`. Added
+adversarially, same rationale as #4/#5.
+
+**Detection rule:** `Enquiry.duplicate_param_names()` (`src/ir.py`).
+
+**Prevention rule:** when combining parameter lists from more than one
+source, check the combined `P = [...]` list for name collisions before
+calling `query_xml()`.
+
+**Regression test:**
+`tests/test_validator.py::test_duplicate_param_name_is_flagged` (fixture:
+`tests/fixtures/broken_duplicate_param_name.json`);
+`tests/test_ir.py::TestEnquiry::test_duplicate_param_names`;
+`tests/test_mutations.py::test_duplicating_a_param_name_is_caught`.
+
+## 7. A `RequiredPermissions` entry that isn't GUID-shaped
+
+**Symptom:** untested against a live tenant — plausibly either a rejected
+import or (worse) a silently-ignored permission entry, leaving the Create
+button disabled the same way an empty `RequiredPermissions` does
+(`docs/FAILURE_MODES.md` #4). **Logically derived, not live-confirmed**
+which of those two it actually is.
+
+**Minimal reproduction:** `build(..., permissions=["not-a-real-guid"])`.
+
+**Likely cause:** `src/enqgen.py`'s `build()` accepts any string for a
+permission id and only lowercases it — it doesn't check the shape. A typo
+in a hand-written permission id (rather than one pulled from
+`src/permissions.py`'s `PERM` table) would ship silently.
+
+**Evidence:** not found in any real `generated/*/*.json` file — every one
+uses `PERM[...]` from `src/permissions.py`, whose own
+`tests/test_permissions.py::test_every_value_is_a_guid` already confirms
+every table entry is GUID-shaped. This check guards the case where someone
+bypasses that table with a literal string.
+`tests/test_mutations.py::test_corrupting_a_permission_guid_is_caught`
+confirms all 14 current files trip it once corrupted. Added adversarially.
+
+**Detection rule:** `enquiry_validator.check_permission_guid_format()` — a
+plain regex match against the standard 8-4-4-4-12 hex GUID shape.
+
+**Prevention rule:** always take `RequiredPermissions` entries from
+`src/permissions.py`'s `PERM` table rather than writing a literal string.
+
+**Regression test:**
+`tests/test_validator.py::test_malformed_permission_guid_is_flagged`
+(fixture: `tests/fixtures/broken_permission_guid_format.json`);
+`tests/test_mutations.py::test_corrupting_a_permission_guid_is_caught`.
+
+## 8. A saved hierarchy with zero `groupRows` (not just more than one)
+
+**Symptom:** untested against a live tenant. **Logically derived, not
+live-confirmed** — but grounded in this repo's own real output, unlike #4-7:
+the *only* confirmed-working hierarchy layout ever built here
+(`generated/gl/04_pl_by_month.json`, "Uses a P&L tree hierarchy on a
+SINGLE-level groupRows (AccountId only) — safe combination") always pairs
+the tree with **exactly one** `groupRows` entry — the field whose values
+map onto the tree's leaf nodes. The original check (`docs/FAILURE_MODES.md`
+#1) only flagged *more than one* level; it never asked whether zero levels
+might be just as broken, for the same underlying reason (the tree has
+nothing to bucket rows by).
+
+**Minimal reproduction:** a layout with `"hierarchy": {...}` set and no
+`groupRows` key (or an empty list) at all.
+
+**Likely cause:** building a hierarchy-based layout by deleting an
+"extra" groupRows level to fix the #1 conflict and accidentally deleting
+the *only* level instead of the second one.
+
+**Evidence:** not found in real output — `04_pl_by_month.json` has exactly
+one groupRows level, and no other generated enquiry uses a hierarchy at
+all. `tests/test_mutations.py::test_stripping_grouprows_from_a_hierarchy_layout_is_caught`
+mutates that one file's groupRows to empty and confirms the validator now
+catches it (it did not, before this pass — a genuine validator gap in the
+existing #1 check, closed here). Added adversarially while stress-testing
+the existing hierarchy check.
+
+**Detection rule:** extended `enquiry_validator.check_layouts()` — when a
+hierarchy is present, `len(groupRows) != 1` (not merely `> 1`) is flagged,
+with a distinct message for the `== 0` case.
+
+**Prevention rule:** a hierarchy layout should always declare exactly one
+`groupRows` entry, naming the field whose values are tree leaf codes.
+
+**Regression test:**
+`tests/test_validator.py::test_hierarchy_with_no_grouprows_is_flagged`
+(fixture: `tests/fixtures/broken_hierarchy_no_grouprows.json`);
+`tests/test_doctor.py::test_hierarchy_no_grouprows_lands_in_layout_section`;
+`tests/test_mutations.py::test_stripping_grouprows_from_a_hierarchy_layout_is_caught`.
 
 ## Also checked for, not found
 
