@@ -198,9 +198,18 @@ In priority order, all achievable without new external evidence:
    across `docs/SCHEMA.md` prose, `src/schema.py`'s `status` field, and
    `generated/INDEX.md` prose, so `enquiry_doctor.py` and future tooling
    read one source instead of three.
-7. **P3 — natural-language front end**: explicitly deferred. Building a
-   requirement parser/planner on top of an IR that didn't exist until
-   this pass would be premature; §9 items 1–2 are the prerequisite.
+7. **P3 — natural-language front end**: explicitly deferred at the time
+   this audit was written. Building a requirement parser/planner on top of
+   an IR that didn't exist until this pass would have been premature; §9
+   items 1–2 were the prerequisite.
+
+   **Update, later pass:** implemented once the prerequisite existed —
+   `src/spec.py` (`EnquirySpec`), `src/nl_parser.py` (a rule-based keyword
+   matcher, explicitly documented as *not* NLP), and `src/compiler.py`
+   (spec → `enqgen.py` calls), scoped narrowly to GL-grain enquiries only.
+   See `docs/ROADMAP.md` item 10 for what it does and doesn't cover, and
+   `tests/test_nl_parser.py`/`tests/test_compiler.py` for its actual,
+   tested behavior rather than an aspirational description of it.
 
 ## 10. Proposed autonomous execution order
 

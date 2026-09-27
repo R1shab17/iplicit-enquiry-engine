@@ -9,8 +9,8 @@ This exists because iplicit enquiries are a real but undocumented format: four J
 | Path | What it is |
 |---|---|
 | `docs/` | The reference material — schema, grammar, known and discovered failure modes, a project audit, a roadmap, and the two skill documents (`IPLICIT_ENQUIRY_MASTER_SKILL.md` full, `IPLICIT_ENQUIRY_QUICK_SKILL.md` condensed, meant to be pasted into a Claude Project's instructions). |
-| `src/` | The generator (`enqgen.py` + its `schema.py`/`joins.py`/`layouts.py`/`permissions.py` building blocks), a typed intermediate representation (`ir.py`), a parser that reads an export back into that IR (`enquiry_parser.py`), the structural + cross-reference validator (`enquiry_validator.py`), a schema-confidence report (`confidence.py`), and two CLI tools built on all of the above: `enquiry_doctor.py` (one-file diagnostic report) and `enquiry_diff.py` (semantic comparison of two enquiries). |
-| `tests/` | 142 unit tests for every module above, fixtures (one clean, sixteen deliberately broken — one per known/discovered/adversarial failure mode), a mutation-testing harness that applies each of those same mutations to every real `generated/` enquiry, and regression tests for the real bugs this project has hit. |
+| `src/` | The generator (`enqgen.py` + its `schema.py`/`joins.py`/`layouts.py`/`permissions.py` building blocks), a typed intermediate representation (`ir.py`), a parser that reads an export back into that IR (`enquiry_parser.py`), the structural + cross-reference + adversarial validator (`enquiry_validator.py`), a schema-confidence report (`confidence.py`), two CLI tools built on all of the above (`enquiry_doctor.py` one-file diagnostic report, `enquiry_diff.py` semantic comparison of two enquiries), and a narrow natural-language front end (`spec.py`/`nl_parser.py`/`compiler.py`, GL-grain enquiries only — see `docs/ROADMAP.md` item 10). |
+| `tests/` | 170 unit tests for every module above, fixtures (one clean, sixteen deliberately broken — one per known/discovered/adversarial failure mode), a mutation-testing harness that applies each of those same mutations to every real `generated/` enquiry, and regression tests for the real bugs this project has hit. |
 | `corpus/` | Where real enquiry SQL goes to keep improving this. `real_enquiries/` is empty on purpose — see below. `confirmed_patterns/` and `unknown_patterns/` track what's actually been verified against a live iplicit database versus what's inferred from documented conventions. |
 | `generated/` | Ready-to-import enquiry exports, one folder per iplicit module (`gl`, `ar`, `ap`, `sales`, `purchasing`, `bank`, `budgets`). |
 | `experiments/` | Scratch space for enquiries being drafted/tested — promote to `generated/` once validated. |
@@ -33,11 +33,23 @@ python3 src/enquiry_doctor.py generated/bank/10_bank_transactions_by_account.jso
 # Semantic diff of two enquiries (field/join/param/layout/permission level, not textual)
 python3 src/enquiry_diff.py generated/ar/05_aged_debtors_by_customer.json generated/ap/07_aged_creditors_by_supplier.json
 
-# Run the test suite (142 tests)
+# Run the test suite (170 tests)
 python3 -m unittest discover -s tests -v
 ```
 
 To build a new enquiry: write a short Python script using the functions in `src/enqgen.py` (see `src/build_library.py` for 14 worked examples spanning list views, pivots, unions, and table-valued-function sources), validate it, then in iplicit go to **Enquiries > ⋮ > Import from clipboard**, paste the file's contents, tick an analytic group, and click **Create**.
+
+For a plain-English GL request, there's also a narrow compiler prototype (`src/spec.py`/`src/nl_parser.py`/`src/compiler.py` — GL-grain only, rule-based keyword matching, not NLP; see `docs/ROADMAP.md` item 10):
+
+```python
+import sys; sys.path.insert(0, "src")
+from nl_parser import parse
+from compiler import compile_and_build
+
+spec = parse("Show me GL balance by department and cost centre, monthly")
+env, model, warnings = compile_and_build(spec)   # still run this through enquiry_validator.py before trusting it
+print(warnings)  # what the parser/compiler couldn't confirm, if anything
+```
 
 ## The honesty policy
 

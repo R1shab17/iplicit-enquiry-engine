@@ -15,7 +15,12 @@ This repo doesn't depend on having that access again for day-to-day use — the 
 ```
 plain-English request
         │
-        ▼
+        ├──▶ (GL-grain requests only) src/nl_parser.py — rule-based keyword
+        │     match, not NLP — into src/spec.py's EnquirySpec, then
+        │     src/compiler.py — EnquirySpec → the same enqgen.py calls a
+        │     human would write by hand (see "Design choices" below)
+        │
+        ▼  (everything else: a human writes the enqgen.py calls directly)
 src/enqgen.py  (param / src / fld / multi_filter / query_xml / meta / layout / build)
         │  imports from:
         │    src/schema.py       — known tables/views/columns, confirmed vs. inferred
@@ -67,4 +72,5 @@ Enquiries ▸ ⋮ ▸ Import from clipboard ▸ Apply ▸ (tick analytic group) 
 - **Generator produces text, never calls an API.** Nothing in `src/` talks to a live iplicit tenant. Import and Create are always a human action, by design — see `CLAUDE.md`.
 - **The split between `schema.py` / `joins.py` / `layouts.py` / `permissions.py`** exists so that updating one axis (e.g. a newly confirmed table) doesn't require touching the query-building logic in `enqgen.py`, and so `enquiry_parser.py`/`ir.py` can share the same vocabulary when decoding real examples.
 - **`ir.py` is a read/represent layer, not a generator rewrite.** `enqgen.py` still builds QueryXml directly with string templates — that code is simple and already battle-tested across 14 real builds. The IR exists so *validation and tooling* (the validator's cross-reference layer, the doctor, the diff tool) have typed data to work with, without forcing a generator rewrite that would risk the working 14.
+- **The natural-language front end compiles *into* `enqgen.py` calls, not around them.** `src/compiler.py` builds the same `(params, selects, propmeta, layouts, permissions)` shape a hand-written `src/build_library.py` entry builds, then hands it to the same `enqgen.build()` — so a compiled enquiry goes through exactly the same `enquiry_validator.py`/`enquiry_doctor.py` gate as a hand-written one, with no separate, weaker code path. It's also deliberately narrow (GL-grain only) rather than a general one — see `docs/ROADMAP.md` item 10 — because a wrong guess at column/table names anywhere in the pipeline would violate `CLAUDE.md`'s "one rule that matters most," and narrow-but-honest beats broad-but-guessing.
 - **Mutation testing over fuzzing.** `tests/test_mutations.py` mutates real, already-valid `generated/*/*.json` files one meaningful edit at a time, rather than generating random XML/JSON — the goal is finding validator blind spots on realistic near-misses, not crash-testing the parser.
