@@ -15,6 +15,8 @@ import json
 import base64
 import xml.etree.ElementTree as ET
 
+from ir import Enquiry
+
 
 class ParseError(Exception):
     pass
@@ -118,9 +120,11 @@ def parse(path_or_env):
     dict, return a fully structured dict:
         {"env": ..., "model": ..., "query_root": Element,
          "params": [...], "selects": [...], "prop_meta": {...},
-         "layouts": [...], "permissions": [...]}
+         "layouts": [...], "permissions": [...], "ir": Enquiry}
     Raises ParseError on any structural problem, with a message identifying
-    which part failed.
+    which part failed. `ir` is the typed src/ir.py Enquiry built from the
+    same data — prefer it for any new cross-reference logic (see
+    docs/PROJECT_AUDIT.md #9).
     """
     if isinstance(path_or_env, str):
         env, model = load_envelope(path_or_env)
@@ -129,7 +133,7 @@ def parse(path_or_env):
         model = decode_model(env)
 
     query_root = parse_query_xml(model.get("QueryXml", ""))
-    return {
+    parsed = {
         "env": env,
         "model": model,
         "query_root": query_root,
@@ -139,3 +143,5 @@ def parse(path_or_env):
         "layouts": layouts_of(model),
         "permissions": permissions_of(model),
     }
+    parsed["ir"] = Enquiry.from_parsed(parsed)
+    return parsed

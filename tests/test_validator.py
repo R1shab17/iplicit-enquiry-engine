@@ -48,6 +48,30 @@ class TestValidatorAgainstFixtures(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertIn("Could not load/decode envelope", issues[0])
 
+    # -- cross-reference checks (src/ir.py), added after these exact
+    # mistakes were found in this repo's own generated/ output — see
+    # docs/DISCOVERED_FAILURE_MODES.md.
+
+    def test_dangling_source_reference_is_flagged(self):
+        issues = validate_file(fixture("broken_dangling_source.json"))
+        self.assertTrue(any("isn't declared as a <Source>" in m for m in issues))
+
+    def test_undeclared_param_reference_is_flagged(self):
+        issues = validate_file(fixture("broken_undeclared_param.json"))
+        self.assertTrue(any("no <Param Name=\"LegalEntityId\"> is declared" in m for m in issues))
+
+    def test_unused_param_is_flagged(self):
+        issues = validate_file(fixture("broken_unused_param.json"))
+        self.assertTrue(any("is declared but never used" in m for m in issues))
+
+    def test_layout_referencing_missing_field_is_flagged(self):
+        issues = validate_file(fixture("broken_layout_missing_field.json"))
+        self.assertTrue(any("isn't one of the query's output fields" in m and "Layout" in m for m in issues))
+
+    def test_orphan_prop_meta_is_flagged(self):
+        issues = validate_file(fixture("broken_orphan_propmeta.json"))
+        self.assertTrue(any("dead metadata" in m for m in issues))
+
 
 class TestValidatorHelpers(unittest.TestCase):
     def test_between_without_isnull_is_flagged(self):

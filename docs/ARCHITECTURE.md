@@ -18,7 +18,7 @@ plain-English request
         ▼
 src/enqgen.py  (param / src / fld / multi_filter / query_xml / meta / layout / build)
         │  imports from:
-        │    src/schema.py       — known tables/views/columns
+        │    src/schema.py       — known tables/views/columns, confirmed vs. inferred
         │    src/joins.py        — reusable join-chain builders
         │    src/layouts.py      — column-metadata & grid/pivot layout helpers
         │    src/permissions.py  — RequiredPermissions GUID lookup table
@@ -26,25 +26,40 @@ src/enqgen.py  (param / src / fld / multi_filter / query_xml / meta / layout / b
 DbEnquiry export JSON  (base64 envelope)
         │
         ▼
-src/enquiry_validator.py   ── uses src/enquiry_parser.py to decode the envelope,
-        │                     then runs the structural checklist from
-        │                     docs/FAILURE_MODES.md
+src/enquiry_parser.py   ── decodes the envelope into src/ir.py's typed
+        │                  Enquiry/Select/Source/Field/Param/Layout dataclasses
+        ▼
+src/enquiry_validator.py   ── runs two check layers against that IR:
+        │                     structural (docs/FAILURE_MODES.md) and
+        │                     cross-reference (docs/DISCOVERED_FAILURE_MODES.md —
+        │                     does every Source/Param/layout-field/PropMeta
+        │                     name actually resolve to something declared)
         ▼
 generated/<module>/*.json   (only if it passes)
         │
+        ├──▶ src/confidence.py + src/enquiry_doctor.py   — one-file PASS/WARN/FAIL
+        │     report: the validator's checks bucketed by section, plus a
+        │     schema-confidence read (which tables used are confirmed vs.
+        │     inferred, via src/schema.py)
+        │
+        ├──▶ src/enquiry_diff.py   — semantic (not textual) comparison of two
+        │     enquiries' params/sources/fields/layouts/permissions, via the
+        │     same IR
         ▼
 Enquiries ▸ ⋮ ▸ Import from clipboard ▸ Apply ▸ (tick analytic group) ▸ Create
         (a human click — this repo never creates anything inside a live tenant itself)
 ```
 
-`src/enquiry_parser.py` is also the reverse direction: given a real enquiry's export (something dropped into `corpus/real_enquiries/`), it decodes the envelope back into the same structured shape the generator builds from — params, sources, fields, layouts, permissions — so a real example and a generated one can be diffed field-for-field.
+`src/ir.py` is the formal intermediate representation (docs/PROJECT_AUDIT.md #3, #9): typed dataclasses instead of the plain dicts/ElementTree objects `enqgen.py` and the original `enquiry_parser.py` passed around by convention. It exists specifically so relationships like "this Field's Source must name a declared Source" have a name and a place to live, rather than being re-discovered by reading strings each time a new check is added. `src/enquiry_parser.py` builds an `Enquiry` from any export — real (something dropped into `corpus/real_enquiries/`) or generated — so a real example and a generated one can be compared through `src/enquiry_diff.py` on equal footing.
 
 ## Why the validator can't be the whole story
 
-`enquiry_validator.py` checks the *shape* of an enquiry: does every optional filter tolerate an empty parameter, is there a permission, does an amount column's currency member actually resolve, does a hierarchy conflict with its row grouping. All of that is derivable from the JSON alone. What it cannot check is whether `[dbo].[bank_transaction]` actually has a `currency` column, or whether `dac_doc_base` has its own `last_modified_by` — that requires a live database. The repo is explicit (in `generated/*/INDEX.md` and `corpus/unknown_patterns/`) about which enquiries carry that kind of unconfirmed assumption.
+`enquiry_validator.py` checks the *shape* of an enquiry — both the structural layer (does every optional filter tolerate an empty parameter, is there a permission, does an amount column's currency member actually resolve, does a hierarchy conflict with its row grouping) and, since the engine-hardening pass, a cross-reference layer (does every Field's Source, every filter's `@Param`, every layout field reference, and every PropMeta entry actually name something declared elsewhere in the same enquiry). All of that is derivable from the JSON alone. What it cannot check is whether `[dbo].[bank_transaction]` actually has a `currency` column, or whether `dac_doc_base` has its own `last_modified_by` — that requires a live database. `src/confidence.py` tracks which tables an enquiry depends on are confirmed vs. inferred (surfaced via `enquiry_doctor.py`), but "inferred" is a flag on an assumption, not a substitute for checking it. The repo is explicit (in `generated/INDEX.md`, `docs/SCHEMA.md`, and `corpus/unknown_patterns/`) about which enquiries carry that kind of unconfirmed assumption. See `docs/PROJECT_AUDIT.md` §0 for what this project currently does and does not have evidence for.
 
 ## Design choices worth knowing about
 
-- **Stdlib only.** No dependencies to install, so the generator and validator run anywhere Python 3 runs, including headless/CI contexts with no access to iplicit itself.
+- **Stdlib only.** No dependencies to install, so the generator, validator, doctor, and diff tool all run anywhere Python 3 runs, including headless/CI contexts with no access to iplicit itself.
 - **Generator produces text, never calls an API.** Nothing in `src/` talks to a live iplicit tenant. Import and Create are always a human action, by design — see `CLAUDE.md`.
-- **The split between `schema.py` / `joins.py` / `layouts.py` / `permissions.py`** exists so that updating one axis (e.g. a newly confirmed table) doesn't require touching the query-building logic in `enqgen.py`, and so `enquiry_parser.py` can share the same vocabulary when decoding real examples.
+- **The split between `schema.py` / `joins.py` / `layouts.py` / `permissions.py`** exists so that updating one axis (e.g. a newly confirmed table) doesn't require touching the query-building logic in `enqgen.py`, and so `enquiry_parser.py`/`ir.py` can share the same vocabulary when decoding real examples.
+- **`ir.py` is a read/represent layer, not a generator rewrite.** `enqgen.py` still builds QueryXml directly with string templates — that code is simple and already battle-tested across 14 real builds. The IR exists so *validation and tooling* (the validator's cross-reference layer, the doctor, the diff tool) have typed data to work with, without forcing a generator rewrite that would risk the working 14.
+- **Mutation testing over fuzzing.** `tests/test_mutations.py` mutates real, already-valid `generated/*/*.json` files one meaningful edit at a time, rather than generating random XML/JSON — the goal is finding validator blind spots on realistic near-misses, not crash-testing the parser.

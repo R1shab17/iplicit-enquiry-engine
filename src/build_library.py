@@ -32,7 +32,11 @@ CUR_PARAM = param("Currency", "Currency", setting_xml=setting("Currency", value_
 P = [LE_PARAM,
      param("FinancialYearGroupId", "Financial year group", "Guid",
            setting_xml=setting("FinancialYearGroup", catalog="FinancialYearGroupForLegalEntity",
-                                bindings=[("LegalEntity", "Text", "LegalEntity")]),
+                                # Binding Name must be the actual declared Param name the value comes
+                                # from (LegalEntityId), not the PropertyName-style label ("LegalEntity")
+                                # — fixed 2026-09-27 after src/ir.py's cross-reference check flagged this
+                                # binding as pointing at an undeclared param. See docs/DISCOVERED_FAILURE_MODES.md #2.
+                                bindings=[("LegalEntityId", "Text", "LegalEntity")]),
            default="#def_financial_year_group"),
      param("PeriodId", "Period", setting_xml=setting("Period", catalog="PeriodsForFYG_FY_LE",
            bindings=[("FinancialYearGroupId", "Guid", "FinancialYearGroup"), ("LegalEntityId", "Text", "LegalEntity")])),
@@ -282,7 +286,12 @@ emit("ap/09_overdue_purchase_invoices.json", "Overdue purchase invoices", "Purch
      "Flat list: due_date < AsOfDate AND still outstanding (HasOutstanding filter-only field). Not aged into buckets — see #7.")
 
 # ---------------------------------------------------------------- 10. Bank transactions by account
-P = [LE_PARAM, param("BankAccountId", "Bank account", setting_xml=setting("BankAccount")),
+# No LegalEntityId param here (deliberately, fixed 2026-09-27): neither
+# bank_transaction nor bank_account has a confirmed legal_entity_id column
+# (docs/SCHEMA.md), so a Legal entity picker would render with no effect —
+# a dead parameter, caught by src/ir.py's unused-param check. See
+# docs/DISCOVERED_FAILURE_MODES.md #1. Re-add it once that column is confirmed.
+P = [param("BankAccountId", "Bank account", setting_xml=setting("BankAccount")),
      param("DateFrom", "Date from", "Date", "Date"), param("DateTo", "Date to", "Date", "Date", default="#today")]
 S = [{"name": "Main", "sources": [
         src("bt", "[dbo].[bank_transaction]", "Table"),
@@ -343,7 +352,13 @@ emit("gl/12_documents_by_user.json", "Documents created/last modified by user", 
      "INFORMATION_SCHEMA.COLUMNS on dac_doc_base before relying on this one; swap the Sql if a real column exists.")
 
 # ---------------------------------------------------------------- 13. Budget vs actual
-P = [LE_PARAM, param("PeriodId", "Period", setting_xml=setting("Period"))]
+# No LegalEntityId param here (deliberately, fixed 2026-09-27): dac_gl.legal_entity_id
+# is confirmed, but budget2_key's is not (docs/SCHEMA.md), and FAILURE_MODES #8
+# requires both sides of a union to carry the same field list — filtering only
+# the "Actual" side would also silently compare mismatched populations. A dead
+# parameter was caught by src/ir.py's unused-param check; see
+# docs/DISCOVERED_FAILURE_MODES.md #1. Re-add once budget2_key's columns are confirmed.
+P = [param("PeriodId", "Period", setting_xml=setting("Period"))]
 S = [{"name": "Budget", "sources": [
         src("bv", "[dbo].[budget2_value]", "Table"),
         src("bk", "[dbo].[budget2_key]", join="InnerJoin", on="[bk].[id] = [bv].[budget_key_id]"),

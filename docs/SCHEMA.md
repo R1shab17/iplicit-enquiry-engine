@@ -12,6 +12,22 @@ Confirmation status matters here. **Confirmed** = seen directly in a real enquir
 
 Base tables (`dbo.gl`, `dbo.doc_base`, `dbo.doc_detail`) exist underneath these but **skip legal-entity security** — only use them when you deliberately want cross-entity visibility (rare, and should be called out explicitly).
 
+## Analytic-dimension views (confirmed)
+
+| View | Alias convention | Keyed by | Notes |
+|---|---|---|---|
+| `[generated].[crv_gl]` | `cg` | `cg.id = g.id` (left join) | Department, CostCentre, Fund, Resource, Location, Activity, Intercon, Country, IncomeType, etc. for a GL line. Not every line has every dimension set. |
+| `[generated].[crv_doc_base]` | `cd` | `cd.id = db.id` (left join) | Document-header equivalent. |
+| `[generated].[crv_doc_detail]` | — | keyed to `doc_detail` | Document-line equivalent. |
+
+These were confirmed-in-use from the start of this project (every GL-grain
+enquiry in `generated/` joins `crv_gl`) but were missing their own entries
+in `src/schema.py`'s `TABLES` dict until `src/confidence.py`'s report
+surfaced the gap — every enquiry using them was scoring as "unknown
+confidence" for a view that was never actually in doubt. Fixed during the
+engine-hardening pass; see `docs/DISCOVERED_FAILURE_MODES.md`'s "also
+checked for" pattern of keeping cheap checks even when they're clean.
+
 ## `dac_gl` columns (confirmed)
 
 `id`, `amount` (base currency), `currency_amount`, `currency`, `base_currency`, `account_id`, `period_id`, `period_date`, `post_date`, `trans_date`, `doc_id`, `doc_no`, `doc_type_id`, `contact_account_id`, `project_id`, `product_id`, `legal_entity_id`, `tax_code_id`, `description`, `invoice_no`, `trans_no`, `trans_line_no`, `attribute_id`, `bank_account_id`, `last_modified`, `last_modified_by`.

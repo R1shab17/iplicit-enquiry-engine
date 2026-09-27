@@ -44,6 +44,36 @@ PRINCIPAL_VIEWS = {
 UNSAFE_BASE_TABLES = {"dbo.gl", "dbo.doc_base", "dbo.doc_detail"}
 
 TABLES = {
+    # NOTE: these three crv_* views were used correctly and consistently
+    # throughout generated/ from the start (they're documented in prose in
+    # dac_gl's own notes below and in docs/SCHEMA.md), but were missing as
+    # their own TABLES entries until src/confidence.py's report surfaced the
+    # gap during the engine-hardening pass — every enquiry using crv_gl was
+    # showing up as "unknown" confidence for a view that was never actually
+    # in doubt. Fixed rather than left as a cosmetic false alarm.
+    "crv_gl": {
+        "status": "confirmed",
+        "columns": [],
+        "notes": (
+            "[generated].[crv_gl] carries the analytic-dimension codes "
+            "(Department, CostCentre, Fund, Resource, Location, Activity, "
+            "Intercon, Country, IncomeType, ...) for a GL line, keyed by "
+            "cg.id = g.id (left join — not every line has every dimension "
+            "set). Exact full column list not enumerated here; the "
+            "dimension names above are the ones seen in this project's "
+            "own generated/ output."
+        ),
+    },
+    "crv_doc_base": {
+        "status": "confirmed",
+        "columns": [],
+        "notes": "Document-header equivalent of crv_gl, keyed by cd.id = db.id (left join).",
+    },
+    "crv_doc_detail": {
+        "status": "confirmed",
+        "columns": [],
+        "notes": "Document-line equivalent of crv_gl/crv_doc_base.",
+    },
     "dac_gl": {
         "status": "confirmed",
         "columns": [

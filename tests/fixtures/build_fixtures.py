@@ -81,7 +81,7 @@ write("broken_filter_in_no_null.json", env)
 
 
 # ---------------------------------------------------------------- broken_hierarchy_grouprows.json
-P, S, M, L_base = _base()
+P = []
 S = [{"name": "Main", "sources": [
         src("g", "[dbo].[dac_gl]", "View"),
         src("a", "[dbo].[account]", join="InnerJoin", on="[a].[id] = [g].[account_id]"),
@@ -104,7 +104,7 @@ write("broken_hierarchy_grouprows.json", env)
 
 
 # ---------------------------------------------------------------- broken_amount_missing_currency.json
-P = [param("LegalEntityId", "Legal entity")]
+P = []
 S = [{"name": "Main", "sources": [
         src("g", "[dbo].[dac_gl]", "View"),
      ], "fields": [
@@ -142,6 +142,73 @@ write("broken_union_mismatch.json", env)
 # Deliberately not a valid DbEnquiry envelope at all — tests the top-level
 # load/decode failure path.
 write("broken_not_json.json", "{this is not valid json")
+
+
+# ---------------------------------------------------------------- broken_dangling_source.json
+# Deliberately bad: Field "Amount"'s Source="x" names a Source that was
+# never declared in this Select (only "g" was) — docs/DISCOVERED_FAILURE_MODES.md #3.
+P = []
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("Description", "description", "g"), fld("Amount", "amount", "x")]}]
+M = {"Description": meta("Description", "Description"), "Amount": m_decimal("Amount", "Amount")}
+L = [layout("Main", ["Description", "Amount"])]
+env, model = build("Fixture: dangling Source reference", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_dangling_source.json", env)
+
+
+# ---------------------------------------------------------------- broken_undeclared_param.json
+# Deliberately bad: the filter references @LegalEntityId, but no matching
+# <Param Name="LegalEntityId"> was declared — docs/DISCOVERED_FAILURE_MODES.md #2.
+P = []
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("LegalEntityId", "legal_entity_id", "g", op="In", arg="@LegalEntityId",
+                      orr="@LegalEntityId is null", output=False),
+                 fld("Description", "description", "g")]}]
+M = {"Description": meta("Description", "Description")}
+L = [layout("Main", ["Description"])]
+env, model = build("Fixture: undeclared param reference", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_undeclared_param.json", env)
+
+
+# ---------------------------------------------------------------- broken_unused_param.json
+# Deliberately bad: LegalEntityId is declared but never used in any filter,
+# Source Sql, or Binding — docs/DISCOVERED_FAILURE_MODES.md #1.
+P = [param("LegalEntityId", "Legal entity")]
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("Description", "description", "g")]}]
+M = {"Description": meta("Description", "Description")}
+L = [layout("Main", ["Description"])]
+env, model = build("Fixture: unused declared param", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_unused_param.json", env)
+
+
+# ---------------------------------------------------------------- broken_layout_missing_field.json
+# Deliberately bad: the layout's columns list references "Notes", which the
+# query never outputs (only "Description" is an output field).
+P = []
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("Description", "description", "g")]}]
+M = {"Description": meta("Description", "Description")}
+L = [layout("Main", ["Description", "Notes"])]
+env, model = build("Fixture: layout references missing field", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_layout_missing_field.json", env)
+
+
+# ---------------------------------------------------------------- broken_orphan_propmeta.json
+# Deliberately bad: PropMetaJson has a "Notes" entry, but the query only
+# outputs "Description" — stale/dead metadata.
+P = []
+S = [{"name": "Main", "sources": [src("g", "[dbo].[dac_gl]", "View")],
+      "fields": [fld("Description", "description", "g")]}]
+M = {"Description": meta("Description", "Description"), "Notes": meta("Notes", "Notes")}
+L = [layout("Main", ["Description"])]
+env, model = build("Fixture: orphan PropMeta entry", "Test", query_xml(P, S), M, L,
+                    permissions=[PERM["GeneralLedger.Enquiry"]])
+write("broken_orphan_propmeta.json", env)
 
 
 print("Wrote fixtures to", HERE)

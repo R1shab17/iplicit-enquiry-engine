@@ -4,7 +4,9 @@ Programmatic checklist validator for iplicit DbEnquiry export JSON files.
 Usage:
     python3 enquiry_validator.py file1.json [file2.json ...]
 
-Checks (mirrors docs/FAILURE_MODES.md):
+Checks (mirrors docs/FAILURE_MODES.md and docs/DISCOVERED_FAILURE_MODES.md):
+
+Structural (envelope/XML/JSON shape):
  - envelope/base64/JSON/XML structural integrity (via enquiry_parser.py)
  - principal source is a dac_* view where GL/doc data is involved
  - every FilterOperator="In" has a matching FilterOr="@X is null"-style clause
@@ -14,6 +16,17 @@ Checks (mirrors docs/FAILURE_MODES.md):
  - hierarchy is not combined with a multi-level groupRows in the same layout
  - every unioned <Select> outputs the same field names, in the same order, as the first
  - PropMetaJson has an entry for every field the first Select outputs (Output != False)
+
+Cross-reference (via src/ir.py — added in the engine-hardening pass after
+these exact mistakes were found in this repo's own generated/ output; see
+docs/DISCOVERED_FAILURE_MODES.md):
+ - every Field's Source attribute names a Source actually declared in that Select
+ - every "@Param" used in a filter/Source-Sql, and every cascading <Binding
+   Name="..."> target, names a Param actually declared
+ - every declared Param is referenced somewhere (else it's a dead picker)
+ - every layout column/groupRows/groupColumns/groupData/includes/detail
+   field names a field the query actually outputs
+ - every PropMetaJson entry names a field the query actually outputs
 
 This validator checks *shape*, not your live schema — it cannot confirm a
 column or table actually exists. See CLAUDE.md's "one rule that matters most".
@@ -103,6 +116,67 @@ def check_permissions(permissions, msgs):
         warn(msgs, "RequiredPermissions is empty — the Create button will stay disabled in the UI with no visible error")
 
 
+def check_source_references(ir, msgs):
+    """Every Field.Source must name a Source declared in the same Select
+    (docs/DISCOVERED_FAILURE_MODES.md #3)."""
+    for si, sel in enumerate(ir.selects):
+        for field_name, source_name in sel.dangling_source_references():
+            warn(msgs, f"Select[{si}]: Field '{field_name}' has Source=\"{source_name}\", which isn't "
+                       f"declared as a <Source> in this Select — the generated SQL will reference an "
+                       f"undefined alias")
+
+
+def check_param_references(ir, msgs):
+    """Every '@Param'/Binding reference must resolve to a declared Param,
+    and every declared Param must be used somewhere
+    (docs/DISCOVERED_FAILURE_MODES.md #1, #2)."""
+    undeclared = ir.undeclared_param_references()
+    for pname in sorted(undeclared):
+        warn(msgs, f"'@{pname}' (or a <Binding Name=\"{pname}\">) is referenced, but no <Param Name=\"{pname}\"> "
+                   f"is declared — likely a typo'd or renamed parameter")
+
+    unused = ir.unused_params()
+    for pname in sorted(unused):
+        warn(msgs, f"Param '{pname}' is declared but never used in any filter, Source Sql, or cascading "
+                   f"Binding — it will show as a picker in the UI that has no effect")
+
+
+def check_layout_field_references(ir, msgs):
+    """Every layout column/groupRows/groupColumns/groupData/includes/detail
+    entry must name a field the query actually outputs."""
+    all_out = set(ir.first_select_output_fields())
+    for l in ir.layouts:
+        missing = l.all_referenced_field_names() - all_out
+        for name in sorted(missing):
+            warn(msgs, f"Layout '{l.description}' references field '{name}', which isn't one of the "
+                       f"query's output fields")
+
+
+def check_orphan_prop_meta(ir, msgs):
+    """Every PropMetaJson entry must name a field the query actually outputs."""
+    all_out = set(ir.first_select_output_fields())
+    orphan = set(ir.prop_meta.keys()) - all_out
+    for name in sorted(orphan):
+        warn(msgs, f"PropMetaJson has an entry for '{name}', which isn't one of the query's output "
+                   f"fields (dead metadata — harmless, but likely stale)")
+
+
+def check_cross_references(ir, msgs):
+    """All four IR-based cross-reference checks together — the checks that
+    need src/ir.py rather than raw XML/JSON: do the names different parts
+    of the enquiry use to refer to each other actually resolve? None of
+    this needs live-schema knowledge — it's pure internal consistency, and
+    it already caught three real bugs in this repo's own generated/ output
+    (a dangling Binding reference and two dead parameters) — see
+    docs/DISCOVERED_FAILURE_MODES.md. Split into the four functions above
+    so tooling (src/enquiry_doctor.py) can report them under separate
+    headings; validate_file() below still runs all four as one pass."""
+    check_source_references(ir, msgs)
+    check_param_references(ir, msgs)
+    check_layout_field_references(ir, msgs)
+    check_orphan_prop_meta(ir, msgs)
+
+
 def validate_file(path):
     msgs = []
     try:
@@ -121,6 +195,7 @@ def validate_file(path):
     check_prop_meta(parsed["selects"], parsed["prop_meta"], msgs)
     check_layouts(parsed["layouts"], parsed["prop_meta"], msgs)
     check_permissions(parsed["permissions"], msgs)
+    check_cross_references(parsed["ir"], msgs)
     return msgs
 
 
