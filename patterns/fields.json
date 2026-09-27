@@ -1,0 +1,684 @@
+{
+  "files_scanned": [
+    "ap/07_aged_creditors_by_supplier.json",
+    "ap/09_overdue_purchase_invoices.json",
+    "ar/05_aged_debtors_by_customer.json",
+    "bank/10_bank_transactions_by_account.json",
+    "budgets/13_budget_vs_actual.json",
+    "gl/01_gl_trial_balance.json",
+    "gl/02_gl_detail_by_nominal.json",
+    "gl/03_balance_sheet_by_department_nominal.json",
+    "gl/04_pl_by_month.json",
+    "gl/11_manual_journals_by_date.json",
+    "gl/12_documents_by_user.json",
+    "purchasing/08_purchase_invoices_by_supplier_month.json",
+    "sales/06_top_customers_by_revenue.json",
+    "sales/14_credit_notes_by_period.json"
+  ],
+  "entries": [
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "legal_entity_id",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ap/09_overdue_purchase_invoices.json",
+        "ar/05_aged_debtors_by_customer.json",
+        "gl/11_manual_journals_by_date.json",
+        "gl/12_documents_by_user.json",
+        "purchasing/08_purchase_invoices_by_supplier_month.json",
+        "sales/06_top_customers_by_revenue.json",
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "ap",
+        "ar",
+        "gl",
+        "purchasing",
+        "sales"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "contact_account",
+      "source_alias": "ca",
+      "sql": "id",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ap/09_overdue_purchase_invoices.json",
+        "ar/05_aged_debtors_by_customer.json",
+        "purchasing/08_purchase_invoices_by_supplier_month.json",
+        "sales/06_top_customers_by_revenue.json",
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "ap",
+        "ar",
+        "purchasing",
+        "sales"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "contact_account",
+      "source_alias": "ca",
+      "sql": "description",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ap/09_overdue_purchase_invoices.json",
+        "ar/05_aged_debtors_by_customer.json",
+        "purchasing/08_purchase_invoices_by_supplier_month.json",
+        "sales/06_top_customers_by_revenue.json",
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "ap",
+        "ar",
+        "purchasing",
+        "sales"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "doc_no",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ap/09_overdue_purchase_invoices.json",
+        "ar/05_aged_debtors_by_customer.json",
+        "gl/11_manual_journals_by_date.json",
+        "gl/12_documents_by_user.json",
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "ap",
+        "ar",
+        "gl",
+        "sales"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "base_currency",
+      "confirmed_via": [
+        "ap/09_overdue_purchase_invoices.json",
+        "gl/11_manual_journals_by_date.json",
+        "purchasing/08_purchase_invoices_by_supplier_month.json",
+        "sales/06_top_customers_by_revenue.json",
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "ap",
+        "gl",
+        "purchasing",
+        "sales"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "account_id",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json",
+        "gl/01_gl_trial_balance.json",
+        "gl/02_gl_detail_by_nominal.json",
+        "gl/03_balance_sheet_by_department_nominal.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "budgets",
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Summary",
+      "table": null,
+      "source_alias": null,
+      "sql": "SUM([g].[amount])",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json",
+        "gl/01_gl_trial_balance.json",
+        "gl/03_balance_sheet_by_department_nominal.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "budgets",
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "legal_entity_id",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json",
+        "gl/02_gl_detail_by_nominal.json",
+        "gl/03_balance_sheet_by_department_nominal.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "base_currency",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json",
+        "gl/02_gl_detail_by_nominal.json",
+        "gl/03_balance_sheet_by_department_nominal.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "doc_date",
+      "confirmed_via": [
+        "gl/11_manual_journals_by_date.json",
+        "gl/12_documents_by_user.json",
+        "sales/06_top_customers_by_revenue.json",
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "gl",
+        "sales"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "due_date",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ap/09_overdue_purchase_invoices.json",
+        "ar/05_aged_debtors_by_customer.json"
+      ],
+      "modules": [
+        "ap",
+        "ar"
+      ]
+    },
+    {
+      "field_type": "Summary",
+      "table": null,
+      "source_alias": "r",
+      "sql": "cur_outs_amount",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ar/05_aged_debtors_by_customer.json"
+      ],
+      "modules": [
+        "ap",
+        "ar"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "period_id",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json",
+        "gl/01_gl_trial_balance.json"
+      ],
+      "modules": [
+        "budgets",
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "crv_gl",
+      "source_alias": "cg",
+      "sql": "CostCentre",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json",
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "budgets",
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "crv_gl",
+      "source_alias": "cg",
+      "sql": "Department",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json",
+        "gl/03_balance_sheet_by_department_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "account",
+      "source_alias": "a",
+      "sql": "account_type",
+      "confirmed_via": [
+        "gl/03_balance_sheet_by_department_nominal.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "description",
+      "confirmed_via": [
+        "gl/11_manual_journals_by_date.json",
+        "gl/12_documents_by_user.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "created_by",
+      "confirmed_via": [
+        "gl/11_manual_journals_by_date.json",
+        "gl/12_documents_by_user.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Summary",
+      "table": null,
+      "source_alias": null,
+      "sql": "SUM([db].[net_amount] * [dt].[mul_control])",
+      "confirmed_via": [
+        "purchasing/08_purchase_invoices_by_supplier_month.json",
+        "sales/06_top_customers_by_revenue.json"
+      ],
+      "modules": [
+        "purchasing",
+        "sales"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "doc_outstanding",
+      "source_alias": "do_",
+      "sql": "cur_outs_amount",
+      "confirmed_via": [
+        "ap/09_overdue_purchase_invoices.json"
+      ],
+      "modules": [
+        "ap"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "contact_account",
+      "source_alias": "ca",
+      "sql": "code",
+      "confirmed_via": [
+        "ar/05_aged_debtors_by_customer.json"
+      ],
+      "modules": [
+        "ar"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "bank_transaction",
+      "source_alias": "bt",
+      "sql": "bank_account_id",
+      "confirmed_via": [
+        "bank/10_bank_transactions_by_account.json"
+      ],
+      "modules": [
+        "bank"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "bank_transaction",
+      "source_alias": "bt",
+      "sql": "trans_date",
+      "confirmed_via": [
+        "bank/10_bank_transactions_by_account.json"
+      ],
+      "modules": [
+        "bank"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "bank_account",
+      "source_alias": "ba",
+      "sql": "code",
+      "confirmed_via": [
+        "bank/10_bank_transactions_by_account.json"
+      ],
+      "modules": [
+        "bank"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "bank_transaction",
+      "source_alias": "bt",
+      "sql": "description",
+      "confirmed_via": [
+        "bank/10_bank_transactions_by_account.json"
+      ],
+      "modules": [
+        "bank"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "bank_transaction",
+      "source_alias": "bt",
+      "sql": "amount",
+      "confirmed_via": [
+        "bank/10_bank_transactions_by_account.json"
+      ],
+      "modules": [
+        "bank"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "budget2_value",
+      "source_alias": "bv",
+      "sql": "period_id",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json"
+      ],
+      "modules": [
+        "budgets"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "budget2_key",
+      "source_alias": "bk",
+      "sql": "account_id",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json"
+      ],
+      "modules": [
+        "budgets"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "budget2_key",
+      "source_alias": "bk",
+      "sql": "cost_centre",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json"
+      ],
+      "modules": [
+        "budgets"
+      ]
+    },
+    {
+      "field_type": "Summary",
+      "table": null,
+      "source_alias": null,
+      "sql": "SUM([bv].[amount])",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json"
+      ],
+      "modules": [
+        "budgets"
+      ]
+    },
+    {
+      "field_type": "Constant",
+      "table": null,
+      "source_alias": null,
+      "sql": "0",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json"
+      ],
+      "modules": [
+        "budgets"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "account",
+      "source_alias": "a",
+      "sql": "code",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "account",
+      "source_alias": "a",
+      "sql": "description",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Summary",
+      "table": null,
+      "source_alias": null,
+      "sql": "CASE WHEN SUM([g].[amount]) > 0 THEN SUM([g].[amount]) ELSE 0 END",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Summary",
+      "table": null,
+      "source_alias": null,
+      "sql": "CASE WHEN SUM([g].[amount]) < 0 THEN -SUM([g].[amount]) ELSE 0 END",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "period_date",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "doc_no",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "doc_id",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "description",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "contact_account_id",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "currency_amount",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "amount",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "currency",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_gl",
+      "source_alias": "g",
+      "sql": "last_modified_by",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "period",
+      "source_alias": "p",
+      "sql": "financial_year_id",
+      "confirmed_via": [
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Expression",
+      "table": null,
+      "source_alias": null,
+      "sql": "FORMAT([p].[date_from],'yyyy-MM')",
+      "confirmed_via": [
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Column",
+      "table": "dac_doc_base",
+      "source_alias": "db",
+      "sql": "net_amount",
+      "confirmed_via": [
+        "gl/11_manual_journals_by_date.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "field_type": "Expression",
+      "table": null,
+      "source_alias": null,
+      "sql": "FORMAT([db].[doc_date],'yyyy-MM')",
+      "confirmed_via": [
+        "purchasing/08_purchase_invoices_by_supplier_month.json"
+      ],
+      "modules": [
+        "purchasing"
+      ]
+    },
+    {
+      "field_type": "Expression",
+      "table": null,
+      "source_alias": null,
+      "sql": "[db].[gross_amount] * [dt].[mul_control]",
+      "confirmed_via": [
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "sales"
+      ]
+    }
+  ]
+}

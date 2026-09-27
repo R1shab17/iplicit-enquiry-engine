@@ -41,8 +41,24 @@ runs both the validator and the confidence assessor on every "ok" result
 before returning it (never returns a result that failed validation), and
 still cannot confirm a column exists beyond what docs/SCHEMA.md already
 documents. See CLAUDE.md's "one rule that matters most".
+
+A third, narrower mechanism sits on top of the template path only: a
+matched template's own build can be lightly extended with an extra output
+column, but ONLY when that column is a) a field src/patterns.py's
+catalogue has confirmed exists on some table (evidence: it's a real Column
+on a real, validated generated/*.json), b) on a table the matched template
+ALREADY joins (so no new join, no new fan-out risk — the row shape doesn't
+change) and c) not already in the template's own output. See
+_find_confirmed_extra_fields()'s docstring for exactly why this one case is
+safe where free recombination across enquiries is not: reading one more
+confirmed column off a table already in the query is not the same claim as
+assembling two tables' worth of confirmed-in-isolation joins into a
+combination nobody has run.
 """
+import copy
+import json
 import os
+import re
 import tempfile
 
 from enqgen import param, fld, multi_filter, query_xml, meta, m_amount, m_decimal, m_text, layout, build, PERM
@@ -50,10 +66,23 @@ from joins import gl_standard_joins
 from spec import EnquirySpec
 import build_library
 import templates as templates_module
+import patterns as patterns_module
 from nl_parser import parse as parse_request
 from enquiry_validator import validate_file
 from enquiry_parser import parse as parse_enquiry
 from confidence import assess_enquiry
+
+_CATALOGUE = None
+
+
+def _catalogue():
+    """Lazily built and cached — src/patterns.py's build_catalogue() parses
+    all 14 generated/*.json files, which is cheap but pointless to repeat
+    on every compile_request() call within one process."""
+    global _CATALOGUE
+    if _CATALOGUE is None:
+        _CATALOGUE = patterns_module.build_catalogue()
+    return _CATALOGUE
 
 # crv_gl's join alias in gl_standard_joins()'s output (src/joins.py).
 _DIMENSION_SOURCE = "cg"
@@ -184,26 +213,157 @@ def _validate_and_assess(env):
     return issues, confidence_report
 
 
-def _build_from_template(tpl):
+def _pascal_case(sql_column: str) -> str:
+    """last_modified_by -> LastModifiedBy; used only to name a newly-added
+    Field/PropMeta entry, never to invent the SQL itself."""
+    tail = sql_column.split(".")[-1]
+    return "".join(part.capitalize() for part in re.split(r"[_\s]+", tail) if part) or tail
+
+
+def _humanize_label(sql_column: str) -> str:
+    tail = sql_column.split(".")[-1].replace("_", " ").strip()
+    return tail[:1].upper() + tail[1:] if tail else tail
+
+
+def _word_phrase_pattern(sql_column: str) -> str:
+    """A confirmed column's SQL name is snake_case ("doc_no"), which nobody
+    types in a plain-English request ("doc no", "document number"). Match
+    the snake_case pieces in order, allowing a space OR underscore between
+    them, so "doc no" and "doc_no" both hit — still a whole-word match
+    against the real column name, never a fuzzy/synonym guess."""
+    parts = [re.escape(p) for p in sql_column.split("_") if p]
+    return r"\b" + r"[ _]".join(parts) + r"\b"
+
+
+def _joined_tables(spec) -> dict:
+    """table name -> the alias this spec's own Select(s) already use for
+    it. Only tables actually present in the matched template's own
+    QueryXml — never a table from a different enquiry."""
+    out = {}
+    for sel in spec["selects"]:
+        for s in sel["sources"]:
+            table = patterns_module._table_name_from_sql(s["sql"]) or s["sql"]
+            out[table] = s["name"]
+    return out
+
+
+def _existing_output_columns(spec) -> set:
+    """(alias, sql) pairs already selected as an output Column — so a
+    confirmed-field match already present isn't re-added or flagged."""
+    out = set()
+    for sel in spec["selects"]:
+        for f in sel["fields"]:
+            if f.get("output", True) and f.get("type") == "Column":
+                out.add((f.get("source"), f.get("sql")))
+    return out
+
+
+def _find_confirmed_extra_fields(text, spec):
+    """Fields from src/patterns.py's catalogue that are: a real, confirmed
+    Column on some table (seen in at least one validated generated/*.json);
+    on a table this spec's own Select already joins (so adding the field
+    changes no join, no row cardinality, no fan-out — it's the same query
+    with one more SELECT-list column); not already in this spec's output;
+    and whose bare column name appears as a whole word in `text`.
+
+    This is deliberately narrow: it never adds a table, join, or column
+    this specific request's matched template doesn't already have a
+    validated precedent for reading. A column being confirmed to exist on
+    a table *in general* (evidence from a different enquiry using that
+    table) is a safe basis for exposing it here — the table is already
+    correctly joined in THIS query; only the SELECT list grows. It is NOT
+    a basis for joining a *new* table, which is why this function only
+    ever looks at tables `spec` already declares.
+
+    Returns a list of (FieldPattern, alias) pairs, each traceable via
+    FieldPattern.confirmed_via back to a real file."""
+    if not text:
+        return []
+    cat = _catalogue()
+    joined = _joined_tables(spec)
+    existing = _existing_output_columns(spec)
+    text_lower = f" {text.lower()} "
+    matches = []
+    seen_columns = set()
+    for pattern, _modules in cat.fields.values():
+        if pattern.field_type != "Column" or not pattern.table:
+            continue
+        alias = joined.get(pattern.table)
+        if not alias:
+            continue
+        if (alias, pattern.sql) in existing:
+            continue
+        word = pattern.sql.split(".")[-1]
+        if not re.search(_word_phrase_pattern(word), text_lower):
+            continue
+        dedupe_key = (alias, pattern.sql)
+        if dedupe_key in seen_columns:
+            continue
+        seen_columns.add(dedupe_key)
+        matches.append((pattern, alias))
+    return matches
+
+
+def _apply_confirmed_extra_fields(spec, text):
+    """Returns (possibly-modified spec, warnings). Never mutates the spec
+    build_fn() returned — copies first, so a template's own build_fn stays
+    pure regardless of what a caller does with its result."""
+    matches = _find_confirmed_extra_fields(text, spec)
+    if not matches:
+        return spec, []
+
+    spec = copy.deepcopy(spec)
+    warnings = []
+    sel = spec["selects"][0]
+    existing_names = {f["name"] for f in sel["fields"]}
+    grid = json.loads(spec["layouts"][0]["def"])["layout"]["grid"]
+
+    for pattern, alias in matches:
+        name = _pascal_case(pattern.sql)
+        if name in existing_names:
+            name = _pascal_case(alias) + name
+        if name in existing_names:
+            continue  # give up on this one rather than risk a duplicate Field name
+        existing_names.add(name)
+
+        sel["fields"].append(fld(name, pattern.sql, alias))
+        spec["propmeta"][name] = m_text(name, _humanize_label(pattern.sql), 140)
+        grid.setdefault("columns", []).append(name)
+        warnings.append(
+            f"Added '{_humanize_label(pattern.sql)}' ({pattern.table}.{pattern.sql}) — a field confirmed on a "
+            f"table this report already joins (src/patterns.py, {len(pattern.confirmed_via)} confirming "
+            "enquiry(ies)), not a fabricated column."
+        )
+
+    spec["layouts"][0]["def"] = json.dumps({"layout": {"grid": grid}}, indent=2)
+    return spec, warnings
+
+
+def _build_from_template(tpl, text=None):
     """Build one of src/templates.py's fixed, already-confirmed report
     shapes via its own build_library.py function — never a second copy of
-    the query logic. Still validates before returning "ok", exactly like
-    the flexible-GL path, so a template result is held to the same bar."""
+    the query logic. If `text` asks (in ordinary words) for an extra
+    column this template's own joins can confirm-and-safely-expose (see
+    _find_confirmed_extra_fields()), it's added before building. Still
+    validates before returning "ok", exactly like the flexible-GL path, so
+    a template result — modified or not — is held to the same bar."""
     spec = tpl.build_fn()
+    spec, extra_warnings = _apply_confirmed_extra_fields(spec, text)
     env, model = build_library.build_export(spec)
     issues, confidence_report = _validate_and_assess(env)
     if issues:
         # A confirmed template failing validation would mean build_library.py
-        # itself regressed — surface it rather than silently degrading, but
-        # don't hand a customer raw validator jargon (the app layer does the
-        # plain-English translation; this just reports the fact).
+        # itself (or the extra-field modifier above) regressed — surface it
+        # rather than silently degrading, but don't hand a customer raw
+        # validator jargon (the app layer does the plain-English
+        # translation; this just reports the fact).
         return {"status": "invalid", "template": tpl, "issues": issues}
     return {
         "status": "ok",
         "env": env,
         "model": model,
         "template": tpl,
-        "warnings": [],
+        "warnings": extra_warnings,
         "confidence": confidence_report,
         "notes": spec.get("notes", ""),
     }
@@ -248,14 +408,14 @@ def compile_request(text, chosen_template_key=None):
         if tpl is None:
             return {"status": "unsupported",
                      "message": f"{chosen_template_key!r} isn't a recognized report type."}
-        return _build_from_template(tpl)
+        return _build_from_template(tpl, text)
 
     matches = templates_module.match(text)
     if matches:
         top_score = matches[0][1]
         tied = [tpl for tpl, s in matches if s == top_score]
         if len(tied) == 1:
-            return _build_from_template(tied[0])
+            return _build_from_template(tied[0], text)
         return {"status": "ambiguous",
                  "candidates": [(t.key, t.title, t.module) for t in tied]}
 

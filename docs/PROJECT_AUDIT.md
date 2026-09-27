@@ -229,6 +229,28 @@ In priority order, all achievable without new external evidence:
    the actual, tested behavior rather than an aspirational description of
    it.
 
+   **Update, later pass still:** given a direct request to make the
+   compiler usable for "anything, in general language" with no live
+   tenant access available in-session, `src/patterns.py` mines every
+   confirmed join/field/filter-idiom/param/layout/permission out of the
+   same 14 `generated/*/*.json` files (never hand-typed — derived via
+   `enquiry_parser.py` + `ir.py`), with every entry citing the real
+   file(s) it's confirmed against. `src/build_docs.py` renders that into
+   `docs/PATTERNS.md` and `patterns/*.json`. `compile_request()` uses it
+   for exactly one additional, narrow case on top of the template path:
+   a matched template's output can grow by one extra column when a) the
+   request names it in ordinary words, b) `src/patterns.py` has confirmed
+   that column exists on some real enquiry's table, and c) that table is
+   one the matched template *already* joins — so the row shape and join
+   graph never change, only which already-reachable columns are exposed.
+   This deliberately does not attempt item 11's original, harder ambition
+   (a knowledge graph that lets new join combinations be assembled from
+   evidence) — most non-GL patterns still have only one confirming file,
+   which is evidence a column exists, not evidence any particular join is
+   safe to reuse elsewhere. See `docs/ROADMAP.md` item 11 and
+   `tests/test_patterns.py`/`tests/test_compiler.py`'s
+   `TestCompileRequestConfirmedExtraFields` for the tested boundary.
+
 ## 10. Proposed autonomous execution order
 
 1. `src/ir.py` (dataclasses) + `tests/test_ir.py`.

@@ -193,6 +193,61 @@ class TestCompileRequestTemplateMatch(unittest.TestCase):
                 self.assertEqual(result["warnings"], [])
 
 
+class TestCompileRequestConfirmedExtraFields(unittest.TestCase):
+    """The narrow src/patterns.py-backed modifier: a matched template's
+    output can grow by one confirmed column already available on a table
+    it joins, when the request names that column in ordinary words. See
+    src/compiler.py's _find_confirmed_extra_fields() docstring for exactly
+    why this is safe where free cross-enquiry recombination is not."""
+
+    def test_requesting_a_confirmed_extra_field_adds_it(self):
+        result = compile_request("Aged creditors report with supplier code, who do we owe")
+        self.assertEqual(result["status"], "ok")
+        self.assertIn('Name="Code"', result["model"]["QueryXml"])
+        self.assertTrue(any("Added 'Code'" in w for w in result["warnings"]))
+
+    def test_no_extra_field_wording_means_no_change(self):
+        plain = compile_request("Aged creditors, who do we owe")
+        self.assertEqual(plain["status"], "ok")
+        self.assertEqual(plain["warnings"], [])
+
+    def test_word_unrelated_to_any_joined_table_is_not_added(self):
+        # "trial balance" joins no table with a confirmed 'code' column, so
+        # mentioning 'code' here should not add or invent anything.
+        result = compile_request("Show me the trial balance with a customer code column")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["warnings"], [])
+
+    def test_already_present_field_on_the_same_table_is_not_duplicated(self):
+        # 'doc no' is already selected from dac_doc_base on this template,
+        # so asking for it again must not add a duplicate Field.
+        result = compile_request("Aged debtors by customer, who owes us, with doc no")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["warnings"], [])
+
+    def test_same_word_can_resolve_a_distinct_field_on_another_joined_table(self):
+        # aged_debtors joins BOTH contact_account (already selects its
+        # .description as the customer name) and dac_doc_base (whose own
+        # .description is a distinct, separately-confirmed column, e.g.
+        # via gl/11_manual_journals_by_date.json). Both are real, so both
+        # can legitimately be added — this isn't a duplicate, it's two
+        # different tables' columns sharing an English word.
+        result = compile_request("Aged debtors by customer, who owes us, with description")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(any("dac_doc_base.description" in w for w in result["warnings"]))
+
+    def test_chosen_template_key_path_also_applies_extra_fields(self):
+        # The ambiguous-resolution path (chosen_template_key) must get the
+        # same modifier treatment as a direct top-scoring match.
+        result = compile_request("aged creditors with supplier code", chosen_template_key="ap_aged_creditors")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(any("Added 'Code'" in w for w in result["warnings"]))
+
+    def test_modified_result_still_validates_and_is_confirmed(self):
+        result = compile_request("Aged creditors report with supplier code, who do we owe")
+        self.assertEqual(result["confidence"]["overall"], "confirmed")
+
+
 class TestCompileRequestFlexibleGlFallback(unittest.TestCase):
     """A GL request with a custom dimension combination that matches no
     fixed template still falls through to the flexible compiler."""

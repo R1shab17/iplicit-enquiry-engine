@@ -1,0 +1,345 @@
+{
+  "files_scanned": [
+    "ap/07_aged_creditors_by_supplier.json",
+    "ap/09_overdue_purchase_invoices.json",
+    "ar/05_aged_debtors_by_customer.json",
+    "bank/10_bank_transactions_by_account.json",
+    "budgets/13_budget_vs_actual.json",
+    "gl/01_gl_trial_balance.json",
+    "gl/02_gl_detail_by_nominal.json",
+    "gl/03_balance_sheet_by_department_nominal.json",
+    "gl/04_pl_by_month.json",
+    "gl/11_manual_journals_by_date.json",
+    "gl/12_documents_by_user.json",
+    "purchasing/08_purchase_invoices_by_supplier_month.json",
+    "sales/06_top_customers_by_revenue.json",
+    "sales/14_credit_notes_by_period.json"
+  ],
+  "entries": [
+    {
+      "table": "dac_doc_base",
+      "alias": "db",
+      "join_type": "Principal",
+      "source_type": "View",
+      "on": null,
+      "sql": "[dbo].[dac_doc_base]",
+      "confirmed_via": [
+        "ap/09_overdue_purchase_invoices.json",
+        "gl/11_manual_journals_by_date.json",
+        "gl/12_documents_by_user.json",
+        "purchasing/08_purchase_invoices_by_supplier_month.json",
+        "sales/06_top_customers_by_revenue.json",
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "ap",
+        "gl",
+        "purchasing",
+        "sales"
+      ]
+    },
+    {
+      "table": "contact_account",
+      "alias": "ca",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[ca].[id] = [db].[contact_account_id]",
+      "sql": "[dbo].[contact_account]",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ap/09_overdue_purchase_invoices.json",
+        "ar/05_aged_debtors_by_customer.json",
+        "purchasing/08_purchase_invoices_by_supplier_month.json",
+        "sales/06_top_customers_by_revenue.json"
+      ],
+      "modules": [
+        "ap",
+        "ar",
+        "purchasing",
+        "sales"
+      ]
+    },
+    {
+      "table": "dac_gl",
+      "alias": "g",
+      "join_type": "Principal",
+      "source_type": "View",
+      "on": null,
+      "sql": "[dbo].[dac_gl]",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json",
+        "gl/01_gl_trial_balance.json",
+        "gl/02_gl_detail_by_nominal.json",
+        "gl/03_balance_sheet_by_department_nominal.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "budgets",
+        "gl"
+      ]
+    },
+    {
+      "table": "account",
+      "alias": "a",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[a].[id] = [g].[account_id]",
+      "sql": "[dbo].[account]",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json",
+        "gl/02_gl_detail_by_nominal.json",
+        "gl/03_balance_sheet_by_department_nominal.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "table": "crv_gl",
+      "alias": "cg",
+      "join_type": "LeftJoin",
+      "source_type": "Table",
+      "on": "[g].[id] = [cg].[id]",
+      "sql": "[generated].[crv_gl]",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json",
+        "gl/02_gl_detail_by_nominal.json",
+        "gl/03_balance_sheet_by_department_nominal.json"
+      ],
+      "modules": [
+        "budgets",
+        "gl"
+      ]
+    },
+    {
+      "table": "dac_doc_base",
+      "alias": "db",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[db].[id] = [r].[id]",
+      "sql": "[dbo].[dac_doc_base]",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json",
+        "ar/05_aged_debtors_by_customer.json"
+      ],
+      "modules": [
+        "ap",
+        "ar"
+      ]
+    },
+    {
+      "table": "doc_type",
+      "alias": "dt",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[dt].[id] = [db].[doc_type_id] AND [dt].[is_purchase] = 1",
+      "sql": "[dbo].[doc_type]",
+      "confirmed_via": [
+        "ap/09_overdue_purchase_invoices.json",
+        "purchasing/08_purchase_invoices_by_supplier_month.json"
+      ],
+      "modules": [
+        "ap",
+        "purchasing"
+      ]
+    },
+    {
+      "table": "period",
+      "alias": "p",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[p].[id] = [g].[period_id]",
+      "sql": "[dbo].[period]",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json",
+        "gl/04_pl_by_month.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "table": "select * from [dbo].[GetAgedCreditors]('due_date', @AsOfDate) r",
+      "alias": "r",
+      "join_type": "Principal",
+      "source_type": "Sql",
+      "on": null,
+      "sql": "select * from [dbo].[GetAgedCreditors]('due_date', @AsOfDate) r",
+      "confirmed_via": [
+        "ap/07_aged_creditors_by_supplier.json"
+      ],
+      "modules": [
+        "ap"
+      ]
+    },
+    {
+      "table": "doc_outstanding",
+      "alias": "do_",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[do_].[id] = [db].[id]",
+      "sql": "[dbo].[doc_outstanding]",
+      "confirmed_via": [
+        "ap/09_overdue_purchase_invoices.json"
+      ],
+      "modules": [
+        "ap"
+      ]
+    },
+    {
+      "table": "select * from [dbo].[GetAgedDebt]('due_date', @AsOfDate) r",
+      "alias": "r",
+      "join_type": "Principal",
+      "source_type": "Sql",
+      "on": null,
+      "sql": "select * from [dbo].[GetAgedDebt]('due_date', @AsOfDate) r",
+      "confirmed_via": [
+        "ar/05_aged_debtors_by_customer.json"
+      ],
+      "modules": [
+        "ar"
+      ]
+    },
+    {
+      "table": "bank_transaction",
+      "alias": "bt",
+      "join_type": "Principal",
+      "source_type": "Table",
+      "on": null,
+      "sql": "[dbo].[bank_transaction]",
+      "confirmed_via": [
+        "bank/10_bank_transactions_by_account.json"
+      ],
+      "modules": [
+        "bank"
+      ]
+    },
+    {
+      "table": "bank_account",
+      "alias": "ba",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[ba].[id] = [bt].[bank_account_id]",
+      "sql": "[dbo].[bank_account]",
+      "confirmed_via": [
+        "bank/10_bank_transactions_by_account.json"
+      ],
+      "modules": [
+        "bank"
+      ]
+    },
+    {
+      "table": "budget2_value",
+      "alias": "bv",
+      "join_type": "Principal",
+      "source_type": "Table",
+      "on": null,
+      "sql": "[dbo].[budget2_value]",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json"
+      ],
+      "modules": [
+        "budgets"
+      ]
+    },
+    {
+      "table": "budget2_key",
+      "alias": "bk",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[bk].[id] = [bv].[budget_key_id]",
+      "sql": "[dbo].[budget2_key]",
+      "confirmed_via": [
+        "budgets/13_budget_vs_actual.json"
+      ],
+      "modules": [
+        "budgets"
+      ]
+    },
+    {
+      "table": "legal_entity",
+      "alias": "le",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[le].[id] = [g].[legal_entity_id]",
+      "sql": "[dbo].[legal_entity]",
+      "confirmed_via": [
+        "gl/01_gl_trial_balance.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "table": "dac_doc_base",
+      "alias": "db",
+      "join_type": "LeftJoin",
+      "source_type": "Table",
+      "on": "[db].[id] = [g].[doc_id]",
+      "sql": "[dbo].[dac_doc_base]",
+      "confirmed_via": [
+        "gl/02_gl_detail_by_nominal.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "table": "doc_type",
+      "alias": "dt",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[dt].[id] = [db].[doc_type_id] AND [dt].[is_gl] = 1",
+      "sql": "[dbo].[doc_type]",
+      "confirmed_via": [
+        "gl/11_manual_journals_by_date.json"
+      ],
+      "modules": [
+        "gl"
+      ]
+    },
+    {
+      "table": "doc_type",
+      "alias": "dt",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[dt].[id] = [db].[doc_type_id] AND [dt].[is_sale] = 1",
+      "sql": "[dbo].[doc_type]",
+      "confirmed_via": [
+        "sales/06_top_customers_by_revenue.json"
+      ],
+      "modules": [
+        "sales"
+      ]
+    },
+    {
+      "table": "doc_type",
+      "alias": "dt",
+      "join_type": "InnerJoin",
+      "source_type": "Table",
+      "on": "[dt].[id] = [db].[doc_type_id] AND [dt].[is_credit_note] = 1",
+      "sql": "[dbo].[doc_type]",
+      "confirmed_via": [
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "sales"
+      ]
+    },
+    {
+      "table": "contact_account",
+      "alias": "ca",
+      "join_type": "LeftJoin",
+      "source_type": "Table",
+      "on": "[ca].[id] = [db].[contact_account_id]",
+      "sql": "[dbo].[contact_account]",
+      "confirmed_via": [
+        "sales/14_credit_notes_by_period.json"
+      ],
+      "modules": [
+        "sales"
+      ]
+    }
+  ]
+}
